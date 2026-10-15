@@ -145,7 +145,7 @@ export function SequenceView() {
             </label>
           </div>
           <button className="btn w-full text-xs" onClick={() => upd((x) => ({ ...x, notes: x.notes.map((n) => ({ ...n, offset: 0 })) }))}>
-            Quantize timing (snap all hits to grid)
+            Snap all hits to the step grid (permanent)
           </button>
           <p className="text-[11px] text-muted-foreground">
             Quantize moves <em>when</em> a hit starts. It never changes the sample's duration — that's the pad's length/stretch setting.

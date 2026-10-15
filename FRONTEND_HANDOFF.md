@@ -1,46 +1,46 @@
-# Frost Sampler — Frontend Handoff
+# Frost Sampler — Handoff
 
-Audience: Claude (or any engineer) implementing the production audio engine.
+Audience: Claude (or any engineer) continuing the app. What to verify on a real iPhone, and how,
+is in **DEVICE_PROOF.md**.
 
 ## Structure
-- `src/lib/frost/types.ts` — typed project model (`SCHEMA_VERSION = 1`): sources, slices, pads, notes, patterns, arrangement, tempo, export settings.
-- `src/lib/frost/services.ts` — replaceable service interfaces. The UI depends only on these.
-- `src/lib/frost/engine.ts` — current prototype Web Audio implementations + honest "unavailable" stubs.
-- `src/lib/frost/audioStore.ts` — AudioBuffers and waveform peaks, kept OUTSIDE React state.
-- `src/lib/frost/store.tsx` — React context: project state, undo history (50 steps), transport flags.
-- `src/lib/frost/demo.ts` — clearly flagged demo project (`isDemo: true`, source `origin: "demo"`, synthetic peaks flagged `demo`).
-- `src/components/frost/*` — Workspace shell, TopBar, Sample / Pads / Sequence / Song / Export views.
+- `src/lib/frost/types.ts` — project model (`SCHEMA_VERSION = 2`; v1 projects migrate in `persist.ts`).
+- `src/lib/frost/timing.ts` — **pure** tempo/grid math: quantize, swing, recording positions, song/pattern
+  sections, `eventsInRange` (the one schedule both live playback and export use), fit-to-length plans.
+- `src/lib/frost/voice.ts` — one pad hit as Web Audio nodes; used by the live `AudioContext` *and* the
+  export `OfflineAudioContext`. Also bakes pitch-preserving stretches.
+- `src/lib/frost/engine.ts` — live side: import/rehydrate, pads, lookahead transport, auto-slice, tempo suggestion, backup.
+- `src/lib/frost/render.ts` — offline 24-bit WAV export (mix + one file per pad, all aligned at 0:00, same length).
+- `src/lib/frost/stretch.ts` — WSOLA time-stretch (pure). `analysis.ts` — onsets, tempo suggestion, beat grid, waveform columns (pure). `wav.ts` — 24-bit encode / decode (pure).
+- `src/lib/frost/persist.ts` — IndexedDB project library + original audio bytes; migration.
+- `src/lib/frost/selftest.ts` — on-device proof checks (Export → Device check).
+- `src/lib/frost/store.tsx` — React context: project, undo, transport flags, autosave, reopen-on-launch.
+- `src/components/frost/*` — Sample / Pads / Sequence / Song / Export views.
+- `public/manifest.webmanifest` + icons — Add to Home Screen.
 
-## Implemented (real)
-- Audio import + decode via `AudioContext.decodeAudioData`; real peaks computed from the buffer.
-- Waveform zoom/scroll, draggable selection handles, numeric start/end, manual markers, audition.
-- Non-destructive slices (start/end into the original source); assign selection to pad; send marker regions to 16 pads.
-- Pad trigger: volume, pan, semitone pitch, reverse, one-shot/gate/loop, choke groups 1–4, attack/release, editable velocity, note repeat.
-- Classic repitch-to-length (beats/bars at project BPM).
-- Step sequencer with 25 ms lookahead scheduler, swing, mute/solo, per-note velocity and timing offset, metronome.
-- Note recording: Record + Play, then tap pads → notes land on the current step (always grid-aligned).
-- Pattern new/duplicate/clear/length; song arrangement add/duplicate/remove/reorder/label.
-- Local metadata save (localStorage) and JSON backup/restore with schema check.
+## Implemented
+- Import MP3/WAV (anything Safari decodes). Original bytes saved in IndexedDB; projects autosave and reopen on launch.
+- Waveform drawn from real samples at any zoom; pinch zoom; select / chop-marker / beat-marker modes.
+- Auto-slice: transients (sensitivity), equal divisions, every N beats of the beat grid. Manual markers: tap to add, drag, tap to delete.
+- Editable beat markers per recording (from typed / tapped / suggested source BPM, then dragged). Source BPM is separate from project BPM.
+- 16 pads × 4 banks; volume, pan, pitch, velocity, attack/release, one-shot/gate/loop, choke, reverse.
+- Musical length in beats or bars with two separate methods: pitch-preserving stretch (WSOLA, baked ahead) and classic repitch.
+- Performance quantize (off, 1/8, 1/16, 1/32) and MPC-style swing, applied **non-destructively** at playback/export. Live recording stores the played position (step + sub-step offset), compensated for output latency plus a per-device calibration offset.
+- Pattern loop and whole-song playback; song export.
+- Export: stereo mix + per-pad tracks, 24-bit, 44.1/48 kHz, pattern×N or song, release tail. Share sheet (Save to Files / AirDrop) or downloads.
+- Device check: export timing to the sample, stems-sum-to-mix, pad boundaries, save → reopen → re-decode.
 
-## Demo behavior
-The demo project has no audio. Its waveform is synthetic and labelled "Demo waveform · not analysis". Pads with demo chops flash but stay silent.
+## Evidence so far (headless Chromium on Linux, not an iPhone)
+Full workflow driven by Playwright on a generated 96 BPM drum loop: import → 24 transient markers → tempo
+suggestion 95.9 → 16 slices to bank A → stretch fit → live recording → mix + 4 tracks → device check
+all PASS (worst hit timing error 0.59 samples @48k, 1.09 @44.1k; stems sum to mix exactly; every pad starts
+and ends ≤ −64 dBFS; reopen field-identical and audio sample-exact). **None of this has run on iOS Safari yet.**
 
-## Unavailable (honest stubs in engine.ts)
-- `sliceService.autoSlice` — transient detection.
-- `tempoService.detectBpm` — source BPM detection (`SourceAsset.detectedBpm` stays null). Separate from project BPM.
-- Pitch-preserving time-stretch (`timeMode: "stretch"` currently plays at original speed).
-- `renderService.renderWav` — offline 24-bit WAV rendering (stereo and per-track stems, common start at 0:00, tail).
-- Song-mode playback (transport loops the current pattern).
-- Audio persistence: imported audio is `persistence: "session-only"`; bytes are never saved. Use IndexedDB/OPFS if added, then flip the flag.
-
-## Known limitations
-- Live-recorded notes use the current step only (no sub-step capture yet), so "quantize off" has no effect when recording.
-- Undo coalesces continuous slider gestures into one step.
-- iOS requires a user gesture to start audio; `playbackService.resume()` is called on pad taps / play.
-- Large files are decoded fully into memory.
-
-## Reusable code from `ai-video-tool`
-The owner has an existing `ai-video-tool` repository that may contain audio-analysis (BPM/onset) and WAV-writing utilities. **It has not been reviewed or integrated, and access is not assumed.** Candidate targets:
-- BPM / onset detection → `TempoService.detectBpm`, `SliceService.autoSlice`
-- WAV encoding (24-bit PCM) → `RenderService.renderWav` (pair with `OfflineAudioContext`)
-Evaluate licensing, browser compatibility (no Node APIs) and performance (consider an AudioWorklet / Web Worker) before adopting.
+## Known limits / design decisions
+- Gate/loop hits in a sequence hold until the next hit on the same pad (no note-length editing yet).
+- Live recording has no sub-step capture of release (gate length) and note repeat is not tempo-locked to the transport.
+- WSOLA is tight for drums and phrases; at large ratios (> ~1.6× / < ~0.6×) it can double transients or sound grainy.
+- Live choke fades with `setTargetAtTime`; export uses a linear 8 ms fade — both cut at the same time.
+- Export memory: each track renders its own `OfflineAudioContext` (float, full length). Long songs × many pads may hit iOS tab memory limits — measure on device.
+- No service worker: the Home Screen app needs a connection to load the page; audio and projects stay on device.
+- Backups (`.frost.json`) contain no audio; audio lives in the browser's IndexedDB on that device.

@@ -1,0 +1,16 @@
+{
+  "name": "Frost Sampler",
+  "short_name": "Frost",
+  "description": "Pocket sampler: chop a recording onto 16 pads, play a beat, export WAVs for LUNA or Pro Tools.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#1c1a18",
+  "theme_color": "#1c1a18",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
