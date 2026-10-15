@@ -132,6 +132,7 @@ export interface Project {
   quantize: "off" | "1/8" | "1/16" | "1/32";
   /** 50..75 (%), MPC-style. Applies to grid-aligned hits only; unquantized playing keeps its own feel. */
   swing: number;
+  /** Unused since v2 UI (kept so older saved projects still load). */
   noteRepeat: "off" | "1/8" | "1/16" | "1/32";
   patterns: Pattern[];
   currentPatternId: string;

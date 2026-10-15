@@ -62,8 +62,3 @@ export interface RenderedFile {
 export interface RenderService {
   renderWav(p: Project, onProgress?: (msg: string) => void): Promise<RenderedFile[]>;
 }
-
-export interface PersistenceService {
-  backupToFile(p: Project): void;
-  restoreFromFile(file: File): Promise<Project>;
-}

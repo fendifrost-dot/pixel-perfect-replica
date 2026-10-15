@@ -18,7 +18,7 @@ Safari → published URL → Share → **Add to Home Screen** → open it from t
 (Home Screen apps keep their storage; plain Safari tabs can be cleared after 7 days unused).
 
 ## 2. Run the built-in check first
-Use any MP3 or WAV from Files. Sample → **Import audio**. Then Export → **Run device check** → **Copy report**.
+Use any MP3 or WAV from Files. Chop → **Import audio**. Then Export → **Device check** → **Run device check** → **Copy report**.
 
 Expected (each line must say PASS):
 
@@ -28,7 +28,7 @@ Expected (each line must say PASS):
 | Export files ×3 | 4 files, 24-bit, identical frame counts (48k: **269891**, 44.1k: **247962**) |
 | Hit timing in mix ×3 | worst error ≤ 1.5 samples (Chromium measured 0.59 / 0.59 / 1.09) |
 | Tracks sum to mix ×3 | ≤ −80 dBFS (Chromium: −240) |
-| Pad boundaries | start and end step quieter than −40 / −34 dBFS on every assigned pad |
+| Pad starts/ends | one row: “all clean” (start < −40 dBFS, end step < −34 dBFS on every assigned pad) |
 | Project reopens identically / Audio … sample-exact | max diff 0.0e+0 |
 
 Different frame counts or a FAIL is a finding — report it as-is, don't adjust thresholds to make it pass.
@@ -37,11 +37,11 @@ Different frame counts or a FAIL is a finding — report it as-is, don't adjust 
 Use a real song you'd sample.
 
 1. **Import + zoom**: pinch-zoom to a single kick; the waveform stays sharp, not blocky.
-2. **Chop**: Auto-slice (Transients) → markers land on hits. Drag one, tap one to delete. *Chop markers → To bank A.*
-3. **Beat markers**: Tap/Suggest the source BPM → *Beat markers from selection start* → drag a marker onto a downbeat.
-4. **Fit**: on a 1-bar loop pad set Length 1 bar → try **Time-stretch** and **Classic repitch** at a project BPM ±10 from the source. Stretch keeps pitch; repitch shifts it.
+2. **Chop**: Auto-chop → Hits → **Find chops** → markers land on hits. Drag one, tap one to delete. **To bank A**.
+3. **Beat markers**: check the suggested BPM (or Tap) → **Beat markers** → drag a marker onto a downbeat.
+4. **Fit**: on a loop pad choose **Stretch** then **Repitch**, length 1 bar, at a BPM ±10 from the recording. Stretch keeps pitch; Repitch shifts it.
 5. **Pads**: drum fast with two thumbs. Note: any missed taps? Any delay you can feel? Clicks at chop starts/ends?
-6. **Record**: Metronome on, Play, Record, play 2 bars. Quantize off → hits sound as played; Quantize 1/16 + swing 60 → hits snap and swing. If everything lands consistently late/early, set *Record timing offset* (Pads) and re-test — note the value.
+6. **Record**: Metronome on, Play, Record, play 2 bars. Feel **Free** → hits sound as played; **1/16** + swing 60 → hits snap and swing. If everything lands consistently late, set *Recording timing fix* (Export → Device check) and re-test — note the value.
 7. **Ring/silent switch**: with the switch on silent, pads should still sound.
 8. **Reopen**: swipe the app away, reopen from Home Screen → same project, pads play, chops intact.
 9. **Export**: Mix + separate tracks, pattern ×4 → Render → **Share → Save to Files** (or AirDrop to the Mac).

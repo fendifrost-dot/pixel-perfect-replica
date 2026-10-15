@@ -197,10 +197,13 @@ async function exportTiming(
 
 const db = (x: number) => (x <= 0 ? "−∞" : (20 * Math.log10(x)).toFixed(0)) + " dBFS";
 
-/** Each assigned pad of the user's project, rendered alone: does it start and end at silence? */
+/** Each assigned pad of the user's project, rendered alone: does it start and end at silence? One summary row. */
 export async function boundaryCheck(p: Project): Promise<CheckResult[]> {
-  const out: CheckResult[] = [];
   const sr = 48000;
+  const bad: string[] = [];
+  let checked = 0,
+    worstStart = 0,
+    worstEnd = 0;
   for (const pad of p.pads) {
     const slice = p.slices.find((s) => s.id === pad.sliceId);
     const ps = padSource(pad, slice, p.bpm);
@@ -217,31 +220,37 @@ export async function boundaryCheck(p: Project): Promise<CheckResult[]> {
       when,
       pad.mode === "gate" ? when + ps.playDuration : undefined,
     );
-    const b = await off.startRendering();
-    const x = b.getChannelData(0);
+    const x = (await off.startRendering()).getChannelData(0);
     const s0 = Math.round(when * sr);
     const e0 = Math.round((when + ps.playDuration) * sr);
     let first = 0,
-      body = 0,
       endJump = 0;
     for (let i = s0; i < s0 + 2; i++) first = Math.max(first, Math.abs(x[i]));
-    for (let i = s0; i < e0; i++) body = Math.max(body, Math.abs(x[i]));
     for (let i = Math.max(1, e0 - 2); i < Math.min(x.length, e0 + 48); i++)
       endJump = Math.max(endJump, Math.abs(x[i] - x[i - 1]));
-    const pass = first < 0.01 && endJump < 0.02;
-    out.push({
-      name: `Pad ${pad.id} boundaries`,
-      pass,
-      detail: `start ${db(first)}, end step ${db(endJump)}, body peak ${db(body)}`,
-    });
+    checked++;
+    worstStart = Math.max(worstStart, first);
+    worstEnd = Math.max(worstEnd, endJump);
+    if (first >= 0.01 || endJump >= 0.02)
+      bad.push(`${pad.id} (start ${db(first)}, end ${db(endJump)})`);
   }
-  if (!out.length)
-    out.push({
-      name: "Pad boundaries",
-      pass: true,
-      detail: "No pads with audio assigned yet — assign chops and run again.",
-    });
-  return out;
+  if (!checked)
+    return [
+      {
+        name: "Pad starts/ends",
+        pass: true,
+        detail: "No pads with audio yet — assign chops and run again.",
+      },
+    ];
+  return [
+    {
+      name: `Pad starts/ends (${checked} pads)`,
+      pass: bad.length === 0,
+      detail: bad.length
+        ? `clicks on ${bad.join(", ")}`
+        : `all clean · loudest start ${db(worstStart)}, loudest end step ${db(worstEnd)}`,
+    },
+  ];
 }
 
 /** Save → read back from IndexedDB → re-decode audio → compare. */

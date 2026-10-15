@@ -15,7 +15,7 @@ is in **DEVICE_PROOF.md**.
 - `src/lib/frost/persist.ts` — IndexedDB project library + original audio bytes; migration.
 - `src/lib/frost/selftest.ts` — on-device proof checks (Export → Device check).
 - `src/lib/frost/store.tsx` — React context: project, undo, transport flags, autosave, reopen-on-launch.
-- `src/components/frost/*` — Sample / Pads / Sequence / Song / Export views.
+- `src/components/frost/*` — four tabs: Chop (`SampleView`), Pads (`PadsView` + `PadEditor`), Beat (`BeatView`: pattern grid + song), Export (`ExportView`: render + device check). Projects live in `ProjectsSheet` (tap the project name). Shared `controls.tsx`.
 - `public/manifest.webmanifest` + icons — Add to Home Screen.
 
 ## Implemented
@@ -35,6 +35,11 @@ Full workflow driven by Playwright on a generated 96 BPM drum loop: import → 2
 suggestion 95.9 → 16 slices to bank A → stretch fit → live recording → mix + 4 tracks → device check
 all PASS (worst hit timing error 0.59 samples @48k, 1.09 @44.1k; stems sum to mix exactly; every pad starts
 and ends ≤ −64 dBFS; reopen field-identical and audio sample-exact). **None of this has run on iOS Safari yet.**
+
+## UI rules (v2 simplification)
+- Every control maps to an engine feature; nothing decorative or stubbed. Removed: note repeat (not tempo-locked), demo project, JSON settings backup (no audio), destructive "snap all hits".
+- Rare pad settings live under “More sound settings”. Record timing calibration lives in Export → Device check.
+- Beat tab: choosing Pattern/Song also sets what Play plays. Rows show only pads in use plus an “Add a pad row” picker.
 
 ## Known limits / design decisions
 - Gate/loop hits in a sequence hold until the next hit on the same pad (no note-length editing yet).
