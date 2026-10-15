@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { useFrost, uid } from "@/lib/frost/store";
-import { playbackService, tempoService } from "@/lib/frost/engine";
+import { playbackService, transportService } from "@/lib/frost/engine";
+import { recordPosition } from "@/lib/frost/timing";
 import { BANKS, type Pad } from "@/lib/frost/types";
 import { PadEditor } from "./PadEditor";
 import { cn } from "@/lib/utils";
@@ -13,13 +14,51 @@ const COLOR: Record<Pad["color"], string> = {
 const HIT: Record<Pad["color"], string> = { teal: "bg-teal/45", purple: "bg-purple/45", amber: "bg-primary/45" };
 const REPEAT_DIV = { "1/8": 2, "1/16": 4, "1/32": 8 } as const;
 
+const OFFSET_KEY = "frost-sampler:record-offset-ms";
+const readOffset = () => {
+  try {
+    return Number(localStorage.getItem(OFFSET_KEY)) || 0;
+  } catch {
+    return 0;
+  }
+};
+
 export function PadsView() {
-  const { project, commit, recording, playing, currentStep, notify } = useFrost();
+  const { project, commit, recording, playing, loopMode, notify } = useFrost();
   const [hit, setHit] = useState<Record<string, boolean>>({});
+  const [recOffset, setRecOffset] = useState(readOffset);
   const repeat = useRef<Record<string, ReturnType<typeof setInterval>>>({});
   const warned = useRef(false);
   const pads = project.pads.filter((p) => p.bank === project.bank);
   const selected = project.pads.find((p) => p.id === project.selectedPadId);
+
+  const record = (pad: Pad) => {
+    if (loopMode === "song") {
+      if (!warned.current) notify("Recording writes into a pattern — switch the transport to Pattern loop.");
+      warned.current = true;
+      return;
+    }
+    // Position of what the player was HEARING when they tapped, minus their calibration offset.
+    const pos = transportService.positionAt(playbackService.heardTime() - recOffset / 1000);
+    if (pos == null || pos < 0) return;
+    const pat = project.patterns.find((p) => p.id === project.currentPatternId)!;
+    const { step, offset } = recordPosition(pos, pat.lengthSteps);
+    const id = uid();
+    // The tap already sounded; don't let the scheduler play this hit again in the same pass.
+    transportService.suppress(id, pos + 1);
+    commit((p) => ({
+      ...p,
+      patterns: p.patterns.map((pt) =>
+        pt.id !== pat.id
+          ? pt
+          : {
+              ...pt,
+              lanes: pt.lanes.some((l) => l.padId === pad.id) ? pt.lanes : [...pt.lanes, { padId: pad.id, mute: false, solo: false }],
+              notes: [...pt.notes, { id, padId: pad.id, step, velocity: pad.velocity, offset }],
+            },
+      ),
+    }));
+  };
 
   const fire = (pad: Pad) => {
     const slice = project.slices.find((s) => s.id === pad.sliceId);
@@ -28,29 +67,14 @@ export function PadsView() {
       warned.current = true;
       notify("Demo chops have no audio. Import a recording to hear pads.");
     }
-    if (recording && playing && currentStep >= 0) {
-      const pat = project.patterns.find((p) => p.id === project.currentPatternId)!;
-      const step = currentStep % pat.lengthSteps;
-      commit((p) => ({
-        ...p,
-        patterns: p.patterns.map((pt) =>
-          pt.id !== pat.id
-            ? pt
-            : {
-                ...pt,
-                lanes: pt.lanes.some((l) => l.padId === pad.id) ? pt.lanes : [...pt.lanes, { padId: pad.id, mute: false, solo: false }],
-                notes: [...pt.notes.filter((n) => !(n.padId === pad.id && n.step === step)), { id: uid(), padId: pad.id, step, velocity: pad.velocity, offset: 0 }],
-              },
-        ),
-      }));
-    }
+    if (recording && playing) record(pad);
   };
 
   const down = (pad: Pad) => {
     void playbackService.resume();
-    commit((p) => ({ ...p, selectedPadId: pad.id }), { history: false });
+    fire(pad); // sound first, UI after
     setHit((h) => ({ ...h, [pad.id]: true }));
-    fire(pad);
+    if (project.selectedPadId !== pad.id) commit((p) => ({ ...p, selectedPadId: pad.id }), { history: false });
     if (project.noteRepeat !== "off") {
       const ms = (60 / project.bpm / REPEAT_DIV[project.noteRepeat]) * 1000;
       repeat.current[pad.id] = setInterval(() => fire(pad), ms);
@@ -110,12 +134,20 @@ export function PadsView() {
             <div className="eyebrow mb-1">Swing {project.swing}%</div>
             <input type="range" min={50} max={75} value={project.swing} onChange={(e) => commit((p) => ({ ...p, swing: Number(e.target.value) }), { history: false })} className="w-full" />
           </label>
+          <label className="col-span-3 flex items-center justify-between gap-2 text-xs">
+            <span>Record timing offset <span className="text-muted-foreground">(calibrate per device)</span></span>
+            <input className="field w-24 font-mono" type="number" inputMode="numeric" step={1} value={recOffset} onChange={(e) => {
+              const v = Math.max(-200, Math.min(200, Number(e.target.value) || 0));
+              setRecOffset(v);
+              try { localStorage.setItem(OFFSET_KEY, String(v)); } catch { /* private mode */ }
+            }} />
+          </label>
           <p className="col-span-3 text-[11px] text-muted-foreground">
-            Touch can't sense strike force — each pad plays at its editable velocity. Record (●) while playing writes hits to the current pattern.
+            Record (●) while playing captures hits exactly as played. Quantize and swing are applied on playback and export only — set Quantize to off to hear your raw timing. Touch can't sense force; each pad plays at its velocity.
           </p>
         </div>
       </div>
-      {selected && <PadEditor pad={selected} stretchNote={tempoService.stretchAvailability()} />}
+      {selected && <PadEditor pad={selected} />}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 /** Frost Sampler project data model. Bump SCHEMA_VERSION on breaking changes. */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export type Bank = "A" | "B" | "C" | "D";
 export const BANKS: Bank[] = ["A", "B", "C", "D"];
@@ -12,9 +12,12 @@ export interface SourceAsset {
   channels: number;
   /** demo = bundled illustrative data, imported = decoded from a user file */
   origin: "demo" | "imported";
-  /** Imported audio bytes are never persisted in this build. */
-  persistence: "demo" | "session-only";
-  /** Detected source BPM (null until a real analyzer exists). Separate from project BPM. */
+  /**
+   * device = original file bytes are saved in this browser's IndexedDB and re-decoded on reopen.
+   * session-only = bytes were not saved (storage refused / full); re-import needed after reload.
+   */
+  persistence: "demo" | "session-only" | "device";
+  /** Suggested source BPM from onset analysis (a suggestion, never applied automatically). Separate from project BPM. */
   detectedBpm: number | null;
 }
 
@@ -54,9 +57,14 @@ export interface Pad {
 export interface NoteEvent {
   id: string;
   padId: string;
+  /** 16th-note step within the pattern. */
   step: number;
   velocity: number; // 1..127
-  /** Timing offset in fractions of a step (-0.5..0.5). Quantize sets this to 0. */
+  /**
+   * Played timing offset in fractions of a step (-0.5..0.5), kept as played.
+   * Performance quantize (Project.quantize) is applied at playback/export, never written here,
+   * so turning quantize off brings the original feel back.
+   */
   offset: number;
 }
 
@@ -81,12 +89,23 @@ export interface ArrangementBlock {
 }
 
 export interface ExportSettings {
+  /** stereo = mix only; stems = mix plus one aligned file per pad. */
   mode: "stereo" | "stems";
   bitDepth: 24;
   sampleRate: 44100 | 48000;
   range: "song" | "pattern";
+  /** How many times the current pattern repeats when range = pattern. */
+  patternRepeats: number;
   includeTails: boolean;
   tailSec: number;
+}
+
+/** Editable beat markers for one source recording (positions in seconds). */
+export interface BeatGrid {
+  /** Source tempo the grid was generated from (not the project BPM). */
+  bpm: number;
+  beatsPerBar: number;
+  beats: number[];
 }
 
 export interface Selection {
@@ -103,13 +122,16 @@ export interface Project {
   sources: SourceAsset[];
   activeSourceId: string | null;
   selection: Selection | null;
-  markers: Record<string, number[]>; // sourceId -> marker times
+  markers: Record<string, number[]>; // sourceId -> chop marker times
+  beatGrids: Record<string, BeatGrid>; // sourceId -> beat markers
   slices: Slice[];
   pads: Pad[];
   selectedPadId: string | null;
   bank: Bank;
+  /** Performance quantize, applied non-destructively at playback and export. */
   quantize: "off" | "1/8" | "1/16" | "1/32";
-  swing: number; // 50..75 (%)
+  /** 50..75 (%), MPC-style. Applies to grid-aligned hits only; unquantized playing keeps its own feel. */
+  swing: number;
   noteRepeat: "off" | "1/8" | "1/16" | "1/32";
   patterns: Pattern[];
   currentPatternId: string;

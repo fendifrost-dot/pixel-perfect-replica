@@ -78,6 +78,7 @@ export function createDemoProject(): Project {
     activeSourceId: DEMO_SOURCE_ID,
     selection: { sourceId: DEMO_SOURCE_ID, start: 4.0, end: 5.2 },
     markers: { [DEMO_SOURCE_ID]: [0.95, 2.1, 4.0, 8.0] },
+    beatGrids: {},
     slices,
     pads,
     selectedPadId: "A1",
@@ -106,6 +107,33 @@ export function createDemoProject(): Project {
       { id: "b2", patternId: "p1", label: "Verse" },
       { id: "b3", patternId: "p1", label: "Hook" },
     ],
-    export: { mode: "stereo", bitDepth: 24, sampleRate: 48000, range: "song", includeTails: true, tailSec: 2 },
+    export: { mode: "stereo", bitDepth: 24, sampleRate: 48000, range: "song", patternRepeats: 4, includeTails: true, tailSec: 2 },
+  };
+}
+
+/** A blank project for real work (no demo data). */
+export function createEmptyProject(name = "Untitled beat"): Project {
+  const pads = BANKS.flatMap((b) => Array.from({ length: 16 }, (_, i) => makePad(b, i)));
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    name,
+    isDemo: false,
+    bpm: 90,
+    sources: [],
+    activeSourceId: null,
+    selection: null,
+    markers: {},
+    beatGrids: {},
+    slices: [],
+    pads,
+    selectedPadId: "A1",
+    bank: "A",
+    quantize: "1/16",
+    swing: 50,
+    noteRepeat: "off",
+    patterns: [{ id: "p1", name: "Pattern 1", lengthSteps: 32, lanes: [], notes: [] }],
+    currentPatternId: "p1",
+    arrangement: [],
+    export: { mode: "stems", bitDepth: 24, sampleRate: 48000, range: "pattern", patternRepeats: 4, includeTails: true, tailSec: 2 },
   };
 }

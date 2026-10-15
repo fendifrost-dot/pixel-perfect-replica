@@ -1,11 +1,12 @@
 import { ArrowDown, ArrowUp, Copy, Plus, Trash2 } from "lucide-react";
 import { useFrost, uid } from "@/lib/frost/store";
 import type { ArrangementBlock } from "@/lib/frost/types";
+import { cn } from "@/lib/utils";
 
 const LABELS = ["Intro", "Verse", "Pre", "Hook", "Bridge", "Break", "Outro"];
 
 export function SongView() {
-  const { project, commit } = useFrost();
+  const { project, commit, loopMode, setLoopMode } = useFrost();
   const arr = project.arrangement;
   const set = (a: ArrangementBlock[]) => commit((p) => ({ ...p, arrangement: a }));
   const move = (i: number, d: number) => {
@@ -19,6 +20,13 @@ export function SongView() {
 
   return (
     <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-2">
+        {(["pattern", "song"] as const).map((m) => (
+          <button key={m} className={cn("btn", loopMode === m && "btn-on")} onClick={() => setLoopMode(m)}>
+            {m === "pattern" ? "Play: pattern loop" : "Play: whole song"}
+          </button>
+        ))}
+      </div>
       <div className="panel flex items-center justify-between">
         <div>
           <div className="eyebrow">Song length</div>
@@ -48,7 +56,7 @@ export function SongView() {
         ))}
       </ol>
       {arr.length === 0 && <p className="text-center text-sm text-muted-foreground">No blocks yet. Add your current pattern to start a song.</p>}
-      <p className="px-1 text-[11px] text-muted-foreground">Transport currently loops the selected pattern; song-mode playback is part of the audio engine work.</p>
+      <p className="px-1 text-[11px] text-muted-foreground">“Whole song” plays the blocks in order and loops. Export → Song renders the same order once.</p>
     </div>
   );
 }

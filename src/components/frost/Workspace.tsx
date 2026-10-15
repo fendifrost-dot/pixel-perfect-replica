@@ -23,7 +23,7 @@ export function Workspace() {
       <TopBar />
       {project.isDemo && (
         <div className="mx-3 mt-2 rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs text-primary">
-          Demo project — illustrative data only, no audio. Import audio in Sample to hear pads.
+          Demo project — illustrative data only, no audio. Import a recording in Sample to start a real project (it saves on this device automatically).
         </div>
       )}
       <main className="flex-1 px-3 pb-28 pt-3">
