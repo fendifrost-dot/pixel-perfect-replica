@@ -1,9 +1,11 @@
 import { useRef, useState } from "react";
 import { useFrost, uid } from "@/lib/frost/store";
 import { playbackService, transportService } from "@/lib/frost/engine";
+import { recordOffset } from "@/lib/frost/device";
 import { recordPosition } from "@/lib/frost/timing";
 import { BANKS, type Pad } from "@/lib/frost/types";
 import { PadEditor } from "./PadEditor";
+import { Segmented } from "./controls";
 import { cn } from "@/lib/utils";
 
 const COLOR: Record<Pad["color"], string> = {
@@ -12,34 +14,22 @@ const COLOR: Record<Pad["color"], string> = {
   amber: "border-primary/60 bg-primary/10",
 };
 const HIT: Record<Pad["color"], string> = { teal: "bg-teal/45", purple: "bg-purple/45", amber: "bg-primary/45" };
-const REPEAT_DIV = { "1/8": 2, "1/16": 4, "1/32": 8 } as const;
-
-const OFFSET_KEY = "frost-sampler:record-offset-ms";
-const readOffset = () => {
-  try {
-    return Number(localStorage.getItem(OFFSET_KEY)) || 0;
-  } catch {
-    return 0;
-  }
-};
 
 export function PadsView() {
-  const { project, commit, recording, playing, loopMode, notify } = useFrost();
+  const { project, commit, recording, playing, loopMode, notify, setView } = useFrost();
   const [hit, setHit] = useState<Record<string, boolean>>({});
-  const [recOffset, setRecOffset] = useState(readOffset);
-  const repeat = useRef<Record<string, ReturnType<typeof setInterval>>>({});
   const warned = useRef(false);
   const pads = project.pads.filter((p) => p.bank === project.bank);
   const selected = project.pads.find((p) => p.id === project.selectedPadId);
 
   const record = (pad: Pad) => {
     if (loopMode === "song") {
-      if (!warned.current) notify("Recording writes into a pattern — switch the transport to Pattern loop.");
+      if (!warned.current) notify("Recording goes into a pattern — switch Beat to Pattern.");
       warned.current = true;
       return;
     }
     // Position of what the player was HEARING when they tapped, minus their calibration offset.
-    const pos = transportService.positionAt(playbackService.heardTime() - recOffset / 1000);
+    const pos = transportService.positionAt(playbackService.heardTime() - recordOffset.get() / 1000);
     if (pos == null || pos < 0) return;
     const pat = project.patterns.find((p) => p.id === project.currentPatternId)!;
     const { step, offset } = recordPosition(pos, pat.lengthSteps);
@@ -48,59 +38,38 @@ export function PadsView() {
     transportService.suppress(id, pos + 1);
     commit((p) => ({
       ...p,
-      patterns: p.patterns.map((pt) =>
-        pt.id !== pat.id
-          ? pt
-          : {
-              ...pt,
-              lanes: pt.lanes.some((l) => l.padId === pad.id) ? pt.lanes : [...pt.lanes, { padId: pad.id, mute: false, solo: false }],
-              notes: [...pt.notes, { id, padId: pad.id, step, velocity: pad.velocity, offset }],
-            },
-      ),
+      patterns: p.patterns.map((pt) => (pt.id !== pat.id ? pt : { ...pt, notes: [...pt.notes, { id, padId: pad.id, step, velocity: pad.velocity, offset }] })),
     }));
-  };
-
-  const fire = (pad: Pad) => {
-    const slice = project.slices.find((s) => s.id === pad.sliceId);
-    const ok = playbackService.triggerPad(pad, slice, pad.velocity, project.bpm);
-    if (!ok && slice && !warned.current) {
-      warned.current = true;
-      notify("Demo chops have no audio. Import a recording to hear pads.");
-    }
-    if (recording && playing) record(pad);
   };
 
   const down = (pad: Pad) => {
     void playbackService.resume();
-    fire(pad); // sound first, UI after
+    const slice = project.slices.find((s) => s.id === pad.sliceId);
+    playbackService.triggerPad(pad, slice, pad.velocity, project.bpm); // sound first, UI after
+    if (slice && recording && playing) record(pad);
     setHit((h) => ({ ...h, [pad.id]: true }));
     if (project.selectedPadId !== pad.id) commit((p) => ({ ...p, selectedPadId: pad.id }), { history: false });
-    if (project.noteRepeat !== "off") {
-      const ms = (60 / project.bpm / REPEAT_DIV[project.noteRepeat]) * 1000;
-      repeat.current[pad.id] = setInterval(() => fire(pad), ms);
-    }
   };
   const up = (pad: Pad) => {
     setHit((h) => ({ ...h, [pad.id]: false }));
-    clearInterval(repeat.current[pad.id]);
     playbackService.releasePad(pad.id);
   };
+
+  // rows bottom-up like an MPC: 13–16 on top, 1–4 at the bottom
+  const ordered = [12, 13, 14, 15, 8, 9, 10, 11, 4, 5, 6, 7, 0, 1, 2, 3].map((i) => pads[i]);
+  const empty = !project.slices.length;
 
   return (
     <div className="landscape:grid landscape:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] landscape:gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-4">
       <div className="space-y-3">
-        <div className="grid grid-cols-4 gap-2">
-          {BANKS.map((b) => (
-            <button key={b} onClick={() => commit((p) => ({ ...p, bank: b }), { history: false })} className={cn("btn", project.bank === b && "btn-on")}>
-              Bank {b}
-            </button>
-          ))}
-        </div>
+        <Segmented value={project.bank} onChange={(b) => commit((p) => ({ ...p, bank: b }), { history: false })} options={BANKS.map((b) => ({ value: b, label: `Bank ${b}` }))} />
+        {empty && (
+          <button className="btn w-full text-xs" onClick={() => setView("sample")}>
+            No chops yet — go to Chop to fill the pads
+          </button>
+        )}
         <div className="no-touch-scroll mx-auto grid max-w-[min(100%,70vh)] grid-cols-4 gap-2">
-          {[...pads].reverse().reduce<Pad[][]>((rows, p, i) => {
-            (rows[Math.floor(i / 4)] ??= []).unshift(p);
-            return rows;
-          }, []).flat().map((pad) => {
+          {ordered.map((pad) => {
             const slice = project.slices.find((s) => s.id === pad.sliceId);
             return (
               <button
@@ -122,45 +91,40 @@ export function PadsView() {
               >
                 {hit[pad.id] && <span className={cn("absolute inset-0", HIT[pad.color])} />}
                 <span className="relative font-mono text-[10px] text-muted-foreground">{pad.id}</span>
-                <span className="relative line-clamp-2 text-[11px] font-semibold leading-tight">{slice ? slice.name : <span className="text-muted-foreground">Empty</span>}</span>
+                <span className="relative line-clamp-2 text-[11px] font-semibold leading-tight">{slice ? slice.name : ""}</span>
               </button>
             );
           })}
         </div>
-        <div className="panel grid grid-cols-3 gap-2">
-          <Choice label="Note repeat" value={project.noteRepeat} options={["off", "1/8", "1/16", "1/32"]} onChange={(v) => commit((p) => ({ ...p, noteRepeat: v }))} />
-          <Choice label="Quantize" value={project.quantize} options={["off", "1/8", "1/16", "1/32"]} onChange={(v) => commit((p) => ({ ...p, quantize: v }))} />
-          <label>
-            <div className="eyebrow mb-1">Swing {project.swing}%</div>
-            <input type="range" min={50} max={75} value={project.swing} onChange={(e) => commit((p) => ({ ...p, swing: Number(e.target.value) }), { history: false })} className="w-full" />
+        <section className="panel space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="eyebrow">Feel</div>
+            <span className="text-[11px] text-muted-foreground">{project.quantize === "off" ? "Live hits play exactly as played" : "Snaps on playback — your take is kept"}</span>
+          </div>
+          <Segmented
+            value={project.quantize}
+            onChange={(v) => commit((p) => ({ ...p, quantize: v }))}
+            options={[
+              { value: "off", label: "Free" },
+              { value: "1/8", label: "1/8" },
+              { value: "1/16", label: "1/16" },
+              { value: "1/32", label: "1/32" },
+            ]}
+          />
+          <label className="flex items-center gap-3 text-xs">
+            <span className="w-20 shrink-0 text-muted-foreground">Swing {project.swing}%</span>
+            <input
+              type="range"
+              className="h-8 min-w-0 flex-1"
+              min={50}
+              max={75}
+              value={project.swing}
+              onChange={(e) => commit((p) => ({ ...p, swing: Number(e.target.value) }), { history: false })}
+            />
           </label>
-          <label className="col-span-3 flex items-center justify-between gap-2 text-xs">
-            <span>Record timing offset <span className="text-muted-foreground">(calibrate per device)</span></span>
-            <input className="field w-24 font-mono" type="number" inputMode="numeric" step={1} value={recOffset} onChange={(e) => {
-              const v = Math.max(-200, Math.min(200, Number(e.target.value) || 0));
-              setRecOffset(v);
-              try { localStorage.setItem(OFFSET_KEY, String(v)); } catch { /* private mode */ }
-            }} />
-          </label>
-          <p className="col-span-3 text-[11px] text-muted-foreground">
-            Record (●) while playing captures hits exactly as played. Quantize and swing are applied on playback and export only — set Quantize to off to hear your raw timing. Touch can't sense force; each pad plays at its velocity.
-          </p>
-        </div>
+        </section>
       </div>
       {selected && <PadEditor pad={selected} />}
     </div>
-  );
-}
-
-export function Choice<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: readonly T[]; onChange: (v: T) => void }) {
-  return (
-    <label>
-      <div className="eyebrow mb-1">{label}</div>
-      <select className="field" value={value} onChange={(e) => onChange(e.target.value as T)}>
-        {options.map((o) => (
-          <option key={o} value={o}>{o}</option>
-        ))}
-      </select>
-    </label>
   );
 }

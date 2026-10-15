@@ -1,13 +1,17 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { createDemoProject, createEmptyProject } from "./demo";
+import { createEmptyProject } from "./demo";
 import { importService, transportService, playbackService } from "./engine";
 import { currentKey, library } from "./persist";
 import type { LoopMode } from "./services";
 import type { Project } from "./types";
 import { prepareStretches } from "./voice";
 
-export type View = "sample" | "pads" | "sequence" | "song" | "export";
-export type SaveState = "demo" | "saving" | "saved" | "error";
+export type View = "sample" | "pads" | "beat" | "export";
+/** "new" = a blank project nothing has been imported into yet (not saved). */
+export type SaveState = "new" | "saving" | "saved" | "error";
+
+/** A fresh, unsaved project. `isDemo` marks it as not-yet-started so autosave skips it until audio is imported. */
+const freshProject = () => ({ ...createEmptyProject(), isDemo: true });
 
 interface Ctx {
   project: Project;
@@ -45,9 +49,9 @@ const FrostContext = createContext<Ctx | null>(null);
 const newKey = () => "prj_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
 export function FrostProvider({ children }: { children: ReactNode }) {
-  const [project, setProject] = useState<Project>(() => createDemoProject());
+  const [project, setProject] = useState<Project>(freshProject);
   const [past, setPast] = useState<Project[]>([]);
-  const [view, setView] = useState<View>("pads");
+  const [view, setView] = useState<View>("sample");
   const [playing, setPlaying] = useState(false);
   const [loopMode, setLoopModeState] = useState<LoopMode>("pattern");
   const [recording, setRecording] = useState(false);
@@ -55,7 +59,7 @@ export function FrostProvider({ children }: { children: ReactNode }) {
   const [currentStep, setCurrentStep] = useState(-1);
   const [notice, setNotice] = useState<string | null>(null);
   const [projectKey, setProjectKey] = useState<string>(() => newKey());
-  const [saveState, setSaveState] = useState<SaveState>("demo");
+  const [saveState, setSaveState] = useState<SaveState>("new");
   const [loadingAudio, setLoadingAudio] = useState(false);
   const [audioVersion, setAudioVersion] = useState(0);
   const ref = useRef(project);
@@ -107,7 +111,8 @@ export function FrostProvider({ children }: { children: ReactNode }) {
       setProject(p);
       setProjectKey(key);
       currentKey.set(key);
-      setSaveState(p.isDemo ? "demo" : "saved");
+      setSaveState(p.isDemo ? "new" : "saved");
+      setView(p.sources.length ? "pads" : "sample");
       if (p.sources.some((s) => s.origin === "imported")) {
         setLoadingAudio(true);
         try {
@@ -133,7 +138,7 @@ export function FrostProvider({ children }: { children: ReactNode }) {
     [load],
   );
 
-  const newProject = useCallback(() => void load(createEmptyProject(), newKey()), [load]);
+  const newProject = useCallback(() => void load(freshProject(), newKey()), [load]);
 
   // Reopen the last project on launch.
   useEffect(() => {

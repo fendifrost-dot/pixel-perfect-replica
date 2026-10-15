@@ -4,11 +4,10 @@
  */
 import { audioStore, computePeaks } from "./audioStore";
 import { detectOnsets, suggestTempo } from "./analysis";
-import { library, migrateProject } from "./persist";
+import { library } from "./persist";
 import type {
   AudioImportService,
   LoopMode,
-  PersistenceService,
   PlaybackService,
   SliceService,
   TempoService,
@@ -301,20 +300,6 @@ export const tempoService: TempoService = {
   suggestBpm(sourceId) {
     const b = audioStore.getBuffer(sourceId);
     return b ? suggestTempo(monoOf(b), b.sampleRate) : null;
-  },
-};
-
-export const persistenceService: PersistenceService = {
-  backupToFile(p) {
-    const blob = new Blob([JSON.stringify(p, null, 2)], { type: "application/json" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `${p.name.replace(/\W+/g, "_")}.frost.json`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  },
-  async restoreFromFile(file) {
-    return migrateProject(JSON.parse(await file.text()));
   },
 };
 
