@@ -24,6 +24,7 @@ export function SampleView() {
       const asset = await importService.importFile(f);
       commit((p) => ({
         ...p,
+        isDemo: false,
         sources: [...p.sources, asset],
         activeSourceId: asset.id,
         selection: { sourceId: asset.id, start: 0, end: Math.min(2, asset.durationSec) },

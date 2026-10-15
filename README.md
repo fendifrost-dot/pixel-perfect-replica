@@ -1,29 +1,16 @@
-# Welcome to your Lovable project
+# Frost Sampler
 
-This project was built with [Lovable](https://lovable.dev).
+Mobile-first pocket sampler: import a song, chop it onto pads, sequence beats, arrange a song, and (soon) export WAVs for LUNA / Pro Tools.
 
-## Build with Lovable
-
-Open your project in the [Lovable editor](https://lovable.dev) and keep building.
-
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: connect the project to GitHub and every change made in Lovable is committed straight to your repository.
-- **Full ownership**: this code is yours. Push to your repository and your changes sync back into Lovable, ready for your next prompt.
-
-## Development
-
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
-
-```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
-npm run dev
+## Setup
+```bash
+bun install      # or npm install
+bun run dev      # http://localhost:8080
 ```
+Open on an iPhone on the same network, or use the hosted preview. Built with React 19, TypeScript, TanStack Start and Tailwind v4. No backend or account required.
 
-## Built with
+## Where things live
+- `src/lib/frost/` — data model, service interfaces, prototype audio engine, state store
+- `src/components/frost/` — the instrument UI
 
-- TanStack Start
-- TypeScript
-- React
-- Tailwind CSS
+See **FRONTEND_HANDOFF.md** for what works, what's stubbed, and how to plug in the real audio engine.

@@ -8,3 +8,9 @@
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
+
+## Frost Sampler architecture
+- UI talks to audio only through interfaces in src/lib/frost/services.ts — keeps the engine swappable.
+- Audio buffers/peaks live in src/lib/frost/audioStore.ts, never React state — avoids re-render cost and serialization.
+- Unimplemented audio features must render an honest Unavailable state, never fake output.
+- Project data is versioned via SCHEMA_VERSION in types.ts — bump on breaking changes.
