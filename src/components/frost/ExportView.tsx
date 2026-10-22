@@ -21,6 +21,17 @@ export function ExportView() {
   const [checkOpen, setCheckOpen] = useState(false);
   const [checks, setChecks] = useState<CheckResult[] | null>(null);
   const [offset, setOffset] = useState(recordOffset.get);
+  // Edited as text, applied on Enter / blur, so "-" and a cleared box don't snap to 0 mid-typing.
+  const [offsetText, setOffsetText] = useState<string | null>(null);
+  const applyOffset = () => {
+    if (offsetText == null) return;
+    const n = Number(offsetText);
+    setOffsetText(null);
+    if (offsetText.trim() === "" || !Number.isFinite(n)) return;
+    const v = Math.max(-200, Math.min(200, Math.round(n)));
+    setOffset(v);
+    recordOffset.set(v);
+  };
 
   const sections = ex.range === "song" ? songSections(project) : patternSections(project, Math.max(1, ex.patternRepeats));
   const steps = sectionsLength(sections);
@@ -196,13 +207,17 @@ export function ExportView() {
               </span>
               <input
                 className="field w-20 font-mono"
-                type="number"
+                type="text"
                 inputMode="numeric"
-                value={offset}
-                onChange={(e) => {
-                  const v = Math.max(-200, Math.min(200, Number(e.target.value) || 0));
-                  setOffset(v);
-                  recordOffset.set(v);
+                pattern="-?[0-9]*"
+                enterKeyHint="done"
+                value={offsetText ?? String(offset)}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => setOffsetText(e.target.value.replace(/[^\d-]/g, ""))}
+                onBlur={applyOffset}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  if (e.key === "Escape") setOffsetText(null);
                 }}
               />
             </label>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown, Circle, Minus, Play, Plus, Square, Timer, Undo2 } from "lucide-react";
 import { useFrost } from "@/lib/frost/store";
 import { ProjectsSheet } from "./ProjectsSheet";
@@ -10,6 +10,16 @@ export function TopBar() {
   const [projectsOpen, setProjectsOpen] = useState(false);
   const setBpm = (v: number) =>
     commit((p) => ({ ...p, bpm: Math.min(300, Math.max(40, Math.round(v * 10) / 10)) }), { history: false });
+  // Typed BPM is kept as text while editing and applied on Enter / blur, so "1", "12", "120" can
+  // be typed without each keystroke being clamped (typing "1" must not become 40, then "402").
+  const [bpmText, setBpmText] = useState<string | null>(null);
+  useEffect(() => setBpmText(null), [project.bpm]);
+  const applyBpm = () => {
+    if (bpmText == null) return;
+    const v = Number(bpmText.replace(",", "."));
+    setBpmText(null);
+    if (bpmText.trim() !== "" && Number.isFinite(v) && v > 0) setBpm(v);
+  };
 
   return (
     <header className="safe-top sticky top-0 z-20 border-b bg-background/95 px-3 pb-2 backdrop-blur">
@@ -52,10 +62,18 @@ export function TopBar() {
           <label className="flex flex-col items-center px-1">
             <span className="eyebrow leading-none">BPM</span>
             <input
-              type="number"
+              type="text"
               inputMode="decimal"
-              value={project.bpm}
-              onChange={(e) => setBpm(Number(e.target.value) || 40)}
+              pattern="[0-9]*[.,]?[0-9]*"
+              enterKeyHint="done"
+              value={bpmText ?? String(project.bpm)}
+              onFocus={(e) => e.target.select()}
+              onChange={(e) => setBpmText(e.target.value.replace(/[^\d.,]/g, ""))}
+              onBlur={applyBpm}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                if (e.key === "Escape") setBpmText(null);
+              }}
               className="w-16 bg-transparent text-center font-mono text-lg font-semibold text-primary outline-none"
             />
           </label>
