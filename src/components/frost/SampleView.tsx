@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Headphones, Maximize2, Plus, Scissors, Square, Upload, Wand2 } from "lucide-react";
+import { Eraser, Headphones, Maximize2, Plus, Scissors, Square, Upload, Wand2, X } from "lucide-react";
 import { useFrost, uid, fmt } from "@/lib/frost/store";
 import { audioStore } from "@/lib/frost/audioStore";
 import { boundaries, generateBeatGrid, moveBeat } from "@/lib/frost/analysis";
@@ -117,6 +117,16 @@ export function SampleView() {
   const useRange = !!sel && sel.end - sel.start > 0.05;
   const range: [number, number] = useRange ? [sel!.start, sel!.end] : [0, dur];
   const inRange = markers.filter((m) => m > range[0] && m < range[1]);
+  const clearSelection = () => {
+    if (auditioning) toggleAudition();
+    commit((p) => ({ ...p, selection: null }));
+  };
+  /** Remove chop markers: those inside the selection when there is one, otherwise all of them. */
+  const clearMarkers = (all: boolean) => {
+    const keep = all || !useRange ? [] : markers.filter((m) => m < range[0] || m > range[1]);
+    setMarkers(keep, true);
+    notify(all || !useRange ? "All chop markers cleared." : `${markers.length - keep.length} marker${markers.length - keep.length === 1 ? "" : "s"} cleared from the selection.`);
+  };
 
   const toggleAudition = () => {
     clearTimeout(auditionTimer.current);
@@ -243,16 +253,33 @@ export function SampleView() {
 
         <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
           <span>
-            {mode === "select" && (sel ? `Selection ${(sel.end - sel.start).toFixed(3)}s${grid ? ` · ${(((sel.end - sel.start) * grid.bpm) / 60).toFixed(2)} beats` : ""}` : "Drag to select")}
-            {mode === "chop" && "Tap to add · drag to move · tap a marker to delete"}
+            {mode === "select" && (sel ? `Selection ${(sel.end - sel.start).toFixed(3)}s${grid ? ` · ${(((sel.end - sel.start) * grid.bpm) / 60).toFixed(2)} beats` : ""}` : "Drag to select (none = whole file)")}
+            {mode === "chop" && (markers.length ? `${markers.length} marker${markers.length === 1 ? "" : "s"} · tap one to delete · tap empty to add` : "Tap to add a marker · drag to move")}
             {mode === "beats" && (grid ? "Drag beat markers onto the beat" : "Place beat markers under Tempo")}
             {" · pinch to zoom"}
           </span>
-          {v1 - v0 < dur - 1e-6 && (
-            <button aria-label="Show whole recording" className="btn min-h-8 w-9 shrink-0 px-0" onClick={() => setView([0, dur])}>
-              <Maximize2 className="size-4" />
-            </button>
-          )}
+          <span className="flex shrink-0 gap-1">
+            {mode === "select" && sel && (
+              <button aria-label="Deselect" className="btn min-h-8 px-2 text-[11px]" onClick={clearSelection}>
+                <X className="size-3.5" /> Deselect
+              </button>
+            )}
+            {mode === "chop" && markers.length > 0 && useRange && inRange.length > 0 && (
+              <button aria-label="Clear markers in selection" className="btn min-h-8 px-2 text-[11px]" onClick={() => clearMarkers(false)}>
+                <Eraser className="size-3.5" /> In selection
+              </button>
+            )}
+            {mode === "chop" && markers.length > 0 && (
+              <button aria-label="Clear all markers" className="btn min-h-8 px-2 text-[11px]" onClick={() => clearMarkers(true)}>
+                <Eraser className="size-3.5" /> All
+              </button>
+            )}
+            {v1 - v0 < dur - 1e-6 && (
+              <button aria-label="Show whole recording" className="btn min-h-8 w-9 px-0" onClick={() => setView([0, dur])}>
+                <Maximize2 className="size-4" />
+              </button>
+            )}
+          </span>
         </div>
 
         <div className={cn("grid gap-2", grid ? "grid-cols-3" : "grid-cols-2")}>
@@ -273,9 +300,9 @@ export function SampleView() {
       <section className="panel space-y-3">
         <div className="flex items-center justify-between">
           <div className="eyebrow">Auto-chop · {useRange ? "selection" : "whole file"}</div>
-          {inRange.length > 0 && (
-            <button className="text-xs text-muted-foreground underline" onClick={() => setMarkers(markers.filter((m) => m < range[0] || m > range[1]), true)}>
-              Clear markers
+          {markers.length > 0 && (
+            <button className="btn min-h-8 px-2 text-xs" onClick={() => clearMarkers(useRange && inRange.length > 0 ? false : true)}>
+              <Eraser className="size-3.5" /> Clear {useRange && inRange.length > 0 ? `${inRange.length} in selection` : `all ${markers.length}`}
             </button>
           )}
         </div>
