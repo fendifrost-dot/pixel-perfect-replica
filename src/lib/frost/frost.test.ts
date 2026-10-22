@@ -203,6 +203,19 @@ describe("analysis", () => {
     });
   });
 
+  it("does not mark every cycle of a clipped 808", () => {
+    // Hard-clipped 37 Hz sub, 1 s long, hit at 0.3 s: its waveform corners pulse HF energy twice per cycle.
+    const x = new Float32Array(Math.round(2 * sr));
+    const s0 = Math.round(0.3 * sr);
+    for (let i = 0; s0 + i < x.length && i < sr; i++) {
+      const v = Math.sin((2 * Math.PI * 37 * i) / sr) * 4 * Math.exp(-i / (0.5 * sr));
+      x[s0 + i] = Math.max(-0.9, Math.min(0.9, v));
+    }
+    const found = detectOnsets(x, sr, 0, 2, 0.8);
+    expect(found).toHaveLength(1);
+    expect(Math.abs(found[0] - 0.3)).toBeLessThan(0.01);
+  });
+
   it("does not split one hit's decay into several markers", () => {
     const found = detectOnsets(clicks([0.5], 1.5), sr, 0, 1.5, 0.9);
     expect(found).toHaveLength(1);

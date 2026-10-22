@@ -13,22 +13,42 @@ export const PRE_ROLL_SEC = 0.001;
  * and pads swell over 50–80 ms, so the rise is measured against the quietest hop in this window.
  */
 const RISE_LOOKBACK = 12;
+/**
+ * Hops of energy averaged per reading (~46 ms). Saturated sub-bass (an 808 through a clipper)
+ * pulses its high-frequency energy every half cycle; averaging over at least one cycle of
+ * anything above ~22 Hz keeps those pulses from reading as onsets, while a drum's attack still
+ * lands inside one reading.
+ */
+const ENERGY_HOPS = 8;
 
 /**
  * Per-hop onset strength (dB): how far high-frequency energy has risen above its minimum over the
  * previous RISE_LOOKBACK hops. Sharp transients and slow swells both register.
  */
-export function onsetFunction(x: Float32Array): Float32Array {
+/** Mean squared first difference per hop — raw high-frequency energy, no smoothing. */
+export function hopEnergy(x: Float32Array): Float64Array {
   const hops = Math.floor(x.length / HOP);
-  const db = new Float32Array(Math.max(0, hops));
+  const e = new Float64Array(Math.max(0, hops));
   for (let h = 0; h < hops; h++) {
-    let e = 0;
+    let acc = 0;
     const base = h * HOP;
     for (let i = Math.max(1, base); i < base + HOP; i++) {
       const d = x[i] - x[i - 1]; // first difference emphasises attacks
-      e += d * d;
+      acc += d * d;
     }
-    db[h] = Math.max(-80, 10 * Math.log10(e / HOP + 1e-10));
+    e[h] = acc / HOP;
+  }
+  return e;
+}
+
+export function onsetFunction(x: Float32Array, energy = hopEnergy(x)): Float32Array {
+  const e = energy;
+  const db = new Float32Array(e.length);
+  let win = 0;
+  for (let h = 0; h < e.length; h++) {
+    win += e[h];
+    if (h >= ENERGY_HOPS) win -= e[h - ENERGY_HOPS];
+    db[h] = Math.max(-80, 10 * Math.log10(win / Math.min(ENERGY_HOPS, h + 1) + 1e-10));
   }
   const flux = new Float32Array(db.length);
   for (let h = 1; h < db.length; h++) {
@@ -62,7 +82,8 @@ export function detectOnsets(
   const b = Math.min(x.length, Math.floor(end * sampleRate));
   if (b - a < HOP * 4) return [];
   const seg = x.subarray(a, b);
-  const flux = onsetFunction(seg);
+  const energy = hopEnergy(seg);
+  const flux = onsetFunction(seg, energy);
   const s = Math.min(1, Math.max(0, sensitivity));
   const threshold = 4 + (1 - s) * 16; // dB rise: 20 (strict) .. 4 (loose)
   const minGap = Math.max(1, Math.floor((0.08 * sampleRate) / HOP));
@@ -77,9 +98,15 @@ export function detectOnsets(
       if (flux[k] > v || (flux[k] === v && k < h)) crest = false;
     if (!crest) continue;
     last = h;
-    // refine to the first sample reaching 25% of the local peak
-    const r0 = Math.max(0, (h - 1) * HOP),
-      r1 = Math.min(seg.length, (h + 1) * HOP);
+    // The crest sits where the averaged energy peaks, after the attack. Find the loudest raw hop
+    // just before it, walk back to where its rise began, then refine to the first sample reaching
+    // 25% of the peak between those two points.
+    let hm = h;
+    for (let k = Math.max(0, h - ENERGY_HOPS - RISE_LOOKBACK); k < h; k++) if (energy[k] > energy[hm]) hm = k;
+    let hs = hm;
+    while (hs > 0 && hm - hs < RISE_LOOKBACK && energy[hs - 1] < energy[hs]) hs--;
+    const r0 = Math.max(0, hs * HOP),
+      r1 = Math.min(seg.length, (hm + 1) * HOP);
     let peak = 0;
     for (let i = r0; i < r1; i++) peak = Math.max(peak, Math.abs(seg[i]));
     let first = h * HOP;
