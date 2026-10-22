@@ -10,6 +10,7 @@
  * 3. Reopen: saves the project, reads it back from IndexedDB, re-decodes the stored audio and
  *    compares it with what is in memory.
  */
+import { findDrum, parseKitSourceId } from "./kits";
 import { audioStore } from "./audioStore";
 import { makePad } from "./demo";
 import { library } from "./persist";
@@ -281,6 +282,24 @@ export async function reopenCheck(p: Project, key: string): Promise<CheckResult[
     sampleRate: playbackService.latencyInfo().sampleRate,
   });
   for (const s of p.sources) {
+    if (s.origin === "kit") {
+      // Built-in drums are re-synthesized on reopen: check the render is deterministic.
+      const k = parseKitSourceId(s.id);
+      const d = k && findDrum(k.kitId, k.drumId);
+      const mem = audioStore.getBuffer(s.id);
+      let same = false;
+      if (d && mem) {
+        const fresh = d.drum.render(mem.sampleRate);
+        const have = mem.getChannelData(0);
+        same = fresh.length === have.length && fresh.every((v, i) => v === have[i]);
+      }
+      out.push({
+        name: `Drum “${s.name}”`,
+        pass: same,
+        detail: same ? "Regenerates identically on reopen." : d ? "Regenerated drum differs from the loaded one." : "Unknown built-in drum — this app version can't regenerate it.",
+      });
+      continue;
+    }
     if (s.origin !== "imported") continue;
     const mem = audioStore.getBuffer(s.id);
     const a = await library.getAudio(s.id);

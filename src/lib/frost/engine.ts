@@ -5,9 +5,11 @@
 import { audioStore, computePeaks } from "./audioStore";
 import { detectOnsets, firstAudible, suggestTempo } from "./analysis";
 import { library } from "./persist";
+import { findDrum, kitSourceId, parseKitSourceId } from "./kits";
 import type {
   AnalysisService,
   AudioImportService,
+  KitService,
   LoopMode,
   PlaybackService,
   SliceService,
@@ -81,7 +83,13 @@ export const importService: AudioImportService = {
   async rehydrate(p) {
     const missing: string[] = [];
     for (const s of p.sources) {
-      if (s.origin !== "imported" || audioStore.hasBuffer(s.id)) continue;
+      if (audioStore.hasBuffer(s.id)) continue;
+      if (s.origin === "kit") {
+        const k = parseKitSourceId(s.id);
+        if (!k || !ensureDrum(k.kitId, k.drumId)) missing.push(s.id);
+        continue;
+      }
+      if (s.origin !== "imported") continue;
       try {
         const a = s.persistence === "device" ? await library.getAudio(s.id) : undefined;
         if (!a) {
@@ -96,6 +104,45 @@ export const importService: AudioImportService = {
       }
     }
     return missing;
+  },
+};
+
+/** Synthesize a kit drum into audioStore (once). Returns its buffer, or null for an unknown drum. */
+function ensureDrum(kitId: string, drumId: string): AudioBuffer | null {
+  const id = kitSourceId(kitId, drumId);
+  const have = audioStore.getBuffer(id);
+  if (have) return have;
+  const found = findDrum(kitId, drumId);
+  if (!found) return null;
+  const sr = ac().sampleRate;
+  const mono = found.drum.render(sr);
+  const b = new AudioBuffer({ length: mono.length, numberOfChannels: 1, sampleRate: sr });
+  b.copyToChannel(mono as Float32Array<ArrayBuffer>, 0);
+  audioStore.setBuffer(id, b);
+  audioStore.setPeaks(id, computePeaks(b), false);
+  return b;
+}
+
+export const kitService: KitService = {
+  loadDrum(kitId, drumId) {
+    const found = findDrum(kitId, drumId);
+    const b = ensureDrum(kitId, drumId);
+    if (!found || !b) return null;
+    const id = kitSourceId(kitId, drumId);
+    return {
+      asset: {
+        id,
+        name: `${found.kit.name} · ${found.drum.name}`,
+        durationSec: b.duration,
+        sampleRate: b.sampleRate,
+        channels: 1,
+        origin: "kit",
+        persistence: "generated",
+        detectedBpm: null,
+      },
+      slice: { sourceId: id, name: found.drum.name, start: 0, end: b.duration },
+      level: found.drum.level,
+    };
   },
 };
 

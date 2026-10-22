@@ -3,12 +3,13 @@ import { ChevronDown } from "lucide-react";
 import { useFrost } from "@/lib/frost/store";
 import type { Pad } from "@/lib/frost/types";
 import { playPlan } from "@/lib/frost/timing";
+import { pruneKitSources } from "@/lib/frost/kitActions";
 import { Segmented, Slider } from "./controls";
 import { cn } from "@/lib/utils";
 
 const LENGTHS = [0.25, 0.5, 1, 2, 3, 4, 6, 8, 12, 16, 32];
 
-export function PadEditor({ pad }: { pad: Pad }) {
+export function PadEditor({ pad, onAddDrum }: { pad: Pad; onAddDrum?: () => void }) {
   const { project, commit } = useFrost();
   const [more, setMore] = useState(false);
   const slice = project.slices.find((s) => s.id === pad.sliceId);
@@ -29,8 +30,13 @@ export function PadEditor({ pad }: { pad: Pad }) {
 
   if (!slice) {
     return (
-      <section className="panel mt-3 text-sm text-muted-foreground landscape:mt-0 lg:mt-0">
-        Pad {pad.id} is empty. Select part of a recording on Chop and tap “To pad {pad.id}”.
+      <section className="panel mt-3 space-y-2 text-sm text-muted-foreground landscape:mt-0 lg:mt-0">
+        <div>Pad {pad.id} is empty. Put a drum on it, or select part of a recording on Chop and tap “To pad {pad.id}”.</div>
+        {onAddDrum && (
+          <button className="btn w-full text-xs" onClick={onAddDrum}>
+            Add a drum to {pad.id}
+          </button>
+        )}
       </section>
     );
   }
@@ -123,7 +129,7 @@ export function PadEditor({ pad }: { pad: Pad }) {
             <button className={cn("btn text-xs", pad.reverse && "btn-on")} onClick={() => set({ reverse: !pad.reverse }, true)}>
               Reverse {pad.reverse ? "on" : "off"}
             </button>
-            <button className="btn text-xs" onClick={() => set({ sliceId: null }, true)}>
+            <button className="btn text-xs" onClick={() => commit((p) => pruneKitSources({ ...p, pads: p.pads.map((x) => (x.id === pad.id ? { ...x, sliceId: null } : x)) }))}>
               Empty this pad
             </button>
           </div>

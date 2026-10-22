@@ -26,7 +26,8 @@ export function SampleView() {
   const auditionTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const taps = useRef<number[]>([]);
 
-  const src = project.sources.find((s) => s.id === project.activeSourceId);
+  const recordings = project.sources.filter((s) => s.origin !== "kit");
+  const src = recordings.find((s) => s.id === project.activeSourceId) ?? recordings[0];
   const buffer = src ? audioStore.getBuffer(src.id) : undefined;
   const peaks = src ? audioStore.getPeaks(src.id) : undefined;
   const sel = project.selection?.sourceId === src?.id ? project.selection : null;
@@ -196,7 +197,7 @@ export function SampleView() {
     <div className="space-y-3">
       {fileInput}
       <div className="flex gap-2 overflow-x-auto pb-1">
-        {project.sources.map((s) => (
+        {recordings.map((s) => (
           <button key={s.id} onClick={() => commit((p) => ({ ...p, activeSourceId: s.id }))} className={cn("btn min-h-9 shrink-0 text-xs", s.id === src.id && "btn-on")}>
             {s.name}
           </button>

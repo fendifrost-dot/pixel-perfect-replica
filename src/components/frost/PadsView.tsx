@@ -5,6 +5,8 @@ import { recordOffset } from "@/lib/frost/device";
 import { recordPosition } from "@/lib/frost/timing";
 import { BANKS, type Pad } from "@/lib/frost/types";
 import { PadEditor } from "./PadEditor";
+import { DrumPicker } from "./DrumPicker";
+import { Drum } from "lucide-react";
 import { Segmented } from "./controls";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +20,7 @@ const HIT: Record<Pad["color"], string> = { teal: "bg-teal/45", purple: "bg-purp
 export function PadsView() {
   const { project, commit, recording, playing, loopMode, notify, setView } = useFrost();
   const [hit, setHit] = useState<Record<string, boolean>>({});
+  const [drumsFor, setDrumsFor] = useState<string | null>(null);
   const warned = useRef(false);
   const pads = project.pads.filter((p) => p.bank === project.bank);
   const selected = project.pads.find((p) => p.id === project.selectedPadId);
@@ -64,9 +67,14 @@ export function PadsView() {
       <div className="space-y-3">
         <Segmented value={project.bank} onChange={(b) => commit((p) => ({ ...p, bank: b }), { history: false })} options={BANKS.map((b) => ({ value: b, label: `Bank ${b}` }))} />
         {empty && (
-          <button className="btn w-full text-xs" onClick={() => setView("sample")}>
-            No chops yet — go to Chop to fill the pads
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button className="btn text-xs" onClick={() => setDrumsFor(selected?.id ?? "")}>
+              <Drum className="size-4" /> Add drums
+            </button>
+            <button className="btn text-xs" onClick={() => setView("sample")}>
+              Chop a recording
+            </button>
+          </div>
         )}
         <div className="no-touch-scroll mx-auto grid max-w-[min(100%,70vh)] grid-cols-4 gap-2">
           {ordered.map((pad) => {
@@ -124,7 +132,8 @@ export function PadsView() {
           </label>
         </section>
       </div>
-      {selected && <PadEditor pad={selected} />}
+      {selected && <PadEditor pad={selected} onAddDrum={() => setDrumsFor(selected.id)} />}
+      {drumsFor != null && <DrumPicker padId={drumsFor || undefined} onClose={() => setDrumsFor(null)} />}
     </div>
   );
 }

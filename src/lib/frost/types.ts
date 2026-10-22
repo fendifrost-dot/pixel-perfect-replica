@@ -10,13 +10,17 @@ export interface SourceAsset {
   durationSec: number;
   sampleRate: number;
   channels: number;
-  /** demo = bundled illustrative data, imported = decoded from a user file */
-  origin: "demo" | "imported";
+  /**
+   * demo = bundled illustrative data, imported = decoded from a user file,
+   * kit = a built-in drum synthesized in the app (see kits.ts), identified by its id.
+   */
+  origin: "demo" | "imported" | "kit";
   /**
    * device = original file bytes are saved in this browser's IndexedDB and re-decoded on reopen.
    * session-only = bytes were not saved (storage refused / full); re-import needed after reload.
+   * generated = re-synthesized on reopen; nothing to store.
    */
-  persistence: "demo" | "session-only" | "device";
+  persistence: "demo" | "session-only" | "device" | "generated";
   /** Suggested source BPM from onset analysis (a suggestion, never applied automatically). Separate from project BPM. */
   detectedBpm: number | null;
 }

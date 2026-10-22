@@ -56,6 +56,14 @@ export interface TempoService {
   suggestBpm(sourceId: string): { bpm: number; confidence: number } | null;
 }
 
+export interface KitService {
+  /**
+   * Make a built-in drum available as a source (synthesized once, shared by every pad using it).
+   * Returns the asset and a slice covering the whole hit, ready to assign to a pad. Null if unknown.
+   */
+  loadDrum(kitId: string, drumId: string): { asset: SourceAsset; slice: Omit<Slice, "id">; level: number } | null;
+}
+
 export interface RenderedFile {
   name: string;
   blob: Blob;

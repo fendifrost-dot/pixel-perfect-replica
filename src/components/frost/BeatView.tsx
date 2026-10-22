@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { ArrowDown, ArrowUp, Copy, Eraser, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Copy, Drum, Eraser, Plus, Trash2 } from "lucide-react";
+import { DrumPicker } from "./DrumPicker";
 import { useFrost, uid } from "@/lib/frost/store";
 import type { Lane, Pattern } from "@/lib/frost/types";
 import { Segmented } from "./controls";
@@ -27,6 +28,7 @@ function PatternEditor() {
   const { project, commit, currentStep, playing } = useFrost();
   const [page, setPage] = useState(0);
   const [selNote, setSelNote] = useState<string | null>(null);
+  const [drumsOpen, setDrumsOpen] = useState(false);
   const pat = project.patterns.find((p) => p.id === project.currentPatternId)!;
   const pages = pat.lengthSteps / 16;
   const pg = Math.min(page, pages - 1);
@@ -106,7 +108,7 @@ function PatternEditor() {
         <Segmented value={pg} onChange={setPage} options={Array.from({ length: pages }, (_, i) => ({ value: i, label: `Bar ${i + 1}` }))} />
       )}
 
-      {!rowIds.length && !addable.length && <p className="panel text-sm text-muted-foreground">Put chops on pads first, then tap steps here — or press ● and play the pads.</p>}
+      {!rowIds.length && !addable.length && <p className="panel text-sm text-muted-foreground">Add drums below, or put chops on pads on Chop — then tap steps here, or press ● and play the pads.</p>}
 
       <div className="space-y-2">
         {rowIds.map((padId) => {
@@ -155,17 +157,23 @@ function PatternEditor() {
             </div>
           );
         })}
-        {addable.length > 0 && (
-          <select className="field min-h-10 text-sm text-muted-foreground" value="" onChange={(e) => e.target.value && setLane(e.target.value, {})}>
-            <option value="">+ Add a pad row…</option>
-            {addable.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.id} · {project.slices.find((s) => s.id === p.sliceId)?.name}
-              </option>
-            ))}
-          </select>
-        )}
+        <div className={cn("grid gap-2", addable.length > 0 ? "grid-cols-2" : "grid-cols-1")}>
+          <button className="btn min-h-10 text-sm" onClick={() => setDrumsOpen(true)}>
+            <Drum className="size-4" /> Add drum
+          </button>
+          {addable.length > 0 && (
+            <select className="field min-h-10 text-sm text-muted-foreground" value="" onChange={(e) => e.target.value && setLane(e.target.value, {})}>
+              <option value="">+ Add a pad row…</option>
+              {addable.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.id} · {project.slices.find((s) => s.id === p.sliceId)?.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
       </div>
+      {drumsOpen && <DrumPicker onClose={() => setDrumsOpen(false)} />}
 
       {note && (
         <section className="panel space-y-3">

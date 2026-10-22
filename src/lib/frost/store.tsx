@@ -195,9 +195,9 @@ export function FrostProvider({ children }: { children: ReactNode }) {
       return;
     }
     // Nothing sequenced yet: Play previews the recording instead of silently doing nothing.
-    const src = p.sources.find((s) => s.id === p.activeSourceId);
+    const src = p.sources.find((s) => s.id === p.activeSourceId && s.origin !== "kit") ?? p.sources.find((s) => s.origin !== "kit");
     if (!src) {
-      notify("Import a recording first — Play plays your beat, or the recording while the beat is empty.");
+      notify(p.pads.some((x) => x.sliceId) ? "Tap steps on Beat (or ● and play the pads) — then Play plays your beat." : "Add drums on Beat or import a recording on Chop — Play plays your beat.");
       return;
     }
     const sel = p.selection?.sourceId === src.id && p.selection.end - p.selection.start > 0.05 ? p.selection : null;
