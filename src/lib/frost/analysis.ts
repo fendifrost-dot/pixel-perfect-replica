@@ -8,11 +8,19 @@ const HOP = 256;
 /** Slices start slightly before the detected attack so the transient is never cut. */
 export const PRE_ROLL_SEC = 0.001;
 
-/** Per-hop rise in high-frequency energy (dB). */
+/**
+ * Hops an attack may take to develop. Drums rise within one hop (~6 ms); bowed strings, voices
+ * and pads swell over 50–80 ms, so the rise is measured against the quietest hop in this window.
+ */
+const RISE_LOOKBACK = 12;
+
+/**
+ * Per-hop onset strength (dB): how far high-frequency energy has risen above its minimum over the
+ * previous RISE_LOOKBACK hops. Sharp transients and slow swells both register.
+ */
 export function onsetFunction(x: Float32Array): Float32Array {
   const hops = Math.floor(x.length / HOP);
-  const flux = new Float32Array(Math.max(0, hops));
-  let prev = -100;
+  const db = new Float32Array(Math.max(0, hops));
   for (let h = 0; h < hops; h++) {
     let e = 0;
     const base = h * HOP;
@@ -20,11 +28,26 @@ export function onsetFunction(x: Float32Array): Float32Array {
       const d = x[i] - x[i - 1]; // first difference emphasises attacks
       e += d * d;
     }
-    const db = 10 * Math.log10(e / HOP + 1e-10);
-    flux[h] = h === 0 ? 0 : Math.max(0, db - Math.max(prev, -80));
-    prev = db;
+    db[h] = Math.max(-80, 10 * Math.log10(e / HOP + 1e-10));
+  }
+  const flux = new Float32Array(db.length);
+  for (let h = 1; h < db.length; h++) {
+    let floor = db[h - 1];
+    for (let k = Math.max(0, h - RISE_LOOKBACK); k < h - 1; k++) if (db[k] < floor) floor = db[k];
+    // A hop must also be louder than the one before it, so a rise is only credited at its crest.
+    flux[h] = db[h] > db[h - 1] ? Math.max(0, db[h] - floor) : 0;
   }
   return flux;
+}
+
+/**
+ * Time (seconds) of the first sample above `thresholdDb` dBFS — where the recording audibly
+ * starts, so a default selection never sits in leading silence. 0 when the file is silent.
+ */
+export function firstAudible(x: Float32Array, sampleRate: number, thresholdDb = -40): number {
+  const lim = Math.pow(10, thresholdDb / 20);
+  for (let i = 0; i < x.length; i++) if (Math.abs(x[i]) >= lim) return i / sampleRate;
+  return 0;
 }
 
 /** Transient times (seconds) within [start, end). sensitivity 0..1, higher = more slices. */
@@ -41,18 +64,18 @@ export function detectOnsets(
   const seg = x.subarray(a, b);
   const flux = onsetFunction(seg);
   const s = Math.min(1, Math.max(0, sensitivity));
-  const threshold = 6 + (1 - s) * 18; // dB rise: 24 (strict) .. 6 (loose)
-  const minGap = Math.max(1, Math.floor((0.06 * sampleRate) / HOP));
+  const threshold = 4 + (1 - s) * 16; // dB rise: 20 (strict) .. 4 (loose)
+  const minGap = Math.max(1, Math.floor((0.08 * sampleRate) / HOP));
   const out: number[] = [];
   let last = -minGap;
   for (let h = 1; h < flux.length - 1; h++) {
     const v = flux[h];
-    if (v < threshold || v < flux[h - 1] || v < flux[h + 1]) continue;
-    let sum = 0;
-    const lo = Math.max(0, h - 8),
-      hi = Math.min(flux.length, h + 9);
-    for (let i = lo; i < hi; i++) sum += flux[i];
-    if (v <= (sum / (hi - lo)) * 1.5 || h - last < minGap) continue;
+    if (v < threshold || h - last < minGap) continue;
+    // crest of the rise: the strongest hop within one attack window either side
+    let crest = true;
+    for (let k = Math.max(0, h - RISE_LOOKBACK); k <= Math.min(flux.length - 1, h + RISE_LOOKBACK) && crest; k++)
+      if (flux[k] > v || (flux[k] === v && k < h)) crest = false;
+    if (!crest) continue;
     last = h;
     // refine to the first sample reaching 25% of the local peak
     const r0 = Math.max(0, (h - 1) * HOP),

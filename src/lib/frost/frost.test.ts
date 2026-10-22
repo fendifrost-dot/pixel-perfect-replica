@@ -10,7 +10,7 @@ import {
   stepDur,
 } from "./timing";
 import { decodeWav, encodeWav24 } from "./wav";
-import { boundaries, detectOnsets, generateBeatGrid, moveBeat, suggestTempo } from "./analysis";
+import { boundaries, detectOnsets, firstAudible, generateBeatGrid, moveBeat, suggestTempo } from "./analysis";
 import { stretchLength, wsola } from "./stretch";
 import { createDemoProject, makePad } from "./demo";
 import { migrateProject } from "./persist";
@@ -181,6 +181,40 @@ describe("analysis", () => {
       expect(f).toBeLessThanOrEqual(times[i] + 0.0005);
       expect(times[i] - f).toBeLessThan(0.003);
     });
+  });
+
+  it("finds slow swells (bowed strings, voices), not only sharp hits", () => {
+    // Sustained tone whose level swells over 80 ms at each note entry, with a short rest between notes.
+    const x = new Float32Array(Math.round(3 * sr));
+    const entries = [0.3, 1.1, 1.9];
+    for (const t of entries) {
+      const s = Math.round(t * sr);
+      const len = Math.round(0.6 * sr);
+      for (let i = 0; i < len && s + i < x.length; i++) {
+        const env = Math.min(1, i / (0.08 * sr)) * (1 - i / len);
+        x[s + i] += 0.5 * env * (Math.sin((2 * Math.PI * 440 * i) / sr) + 0.3 * Math.sin((2 * Math.PI * 1320 * i) / sr));
+      }
+    }
+    const found = detectOnsets(x, sr, 0, 3, 0.5);
+    expect(found).toHaveLength(entries.length);
+    found.forEach((f, i) => {
+      expect(f).toBeGreaterThanOrEqual(entries[i] - 0.005);
+      expect(f - entries[i]).toBeLessThan(0.09);
+    });
+  });
+
+  it("does not split one hit's decay into several markers", () => {
+    const found = detectOnsets(clicks([0.5], 1.5), sr, 0, 1.5, 0.9);
+    expect(found).toHaveLength(1);
+  });
+
+  it("locates where a recording becomes audible", () => {
+    const x = new Float32Array(sr);
+    expect(firstAudible(x, sr)).toBe(0);
+    for (let i = Math.round(0.4 * sr); i < x.length; i++) x[i] = 0.3 * Math.sin(i * 0.05);
+    expect(firstAudible(x, sr)).toBeCloseTo(0.4, 2);
+    for (let i = 0; i < Math.round(0.4 * sr); i++) x[i] = 0.001; // -60 dBFS hiss is not "audible"
+    expect(firstAudible(x, sr)).toBeCloseTo(0.4, 2);
   });
 
   it("suggests the tempo of a steady pulse", () => {

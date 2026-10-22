@@ -3,9 +3,10 @@
  * Offline export lives in render.ts and shares voice.ts + timing.ts with this file.
  */
 import { audioStore, computePeaks } from "./audioStore";
-import { detectOnsets, suggestTempo } from "./analysis";
+import { detectOnsets, firstAudible, suggestTempo } from "./analysis";
 import { library } from "./persist";
 import type {
+  AnalysisService,
   AudioImportService,
   LoopMode,
   PlaybackService,
@@ -148,12 +149,13 @@ export const playbackService: PlaybackService = {
     const c = ac();
     return { sampleRate: c.sampleRate, baseLatency: c.baseLatency || 0, outputLatency: c.outputLatency || 0 };
   },
-  audition(sourceId, start, end) {
+  audition(sourceId, start, end, onEnd) {
     const b = audioStore.getBuffer(sourceId);
     if (!b) return false;
     playbackService.stopAudition();
     const c = ac();
     const s = c.createBufferSource();
+    if (onEnd) s.onended = onEnd;
     const g = c.createGain();
     s.buffer = b;
     s.connect(g).connect(c.destination);
@@ -293,6 +295,13 @@ export const sliceService: SliceService = {
     const b = audioStore.getBuffer(sourceId);
     if (!b) return [];
     return detectOnsets(monoOf(b), b.sampleRate, start, end, sensitivity);
+  },
+};
+
+export const analysisService: AnalysisService = {
+  firstAudible(sourceId) {
+    const b = audioStore.getBuffer(sourceId);
+    return b ? firstAudible(monoOf(b), b.sampleRate) : 0;
   },
 };
 

@@ -17,7 +17,8 @@ export type LoopMode = "pattern" | "song";
 
 export interface PlaybackService {
   resume(): Promise<void>;
-  audition(sourceId: string, start: number, end: number): boolean;
+  /** Play part of a recording once. `onEnd` fires when it finishes or is stopped. */
+  audition(sourceId: string, start: number, end: number, onEnd?: () => void): boolean;
   stopAudition(): void;
   /** Returns false when no decoded audio exists for the pad. */
   triggerPad(pad: Pad, slice: Slice | undefined, velocity: number, bpm: number, when?: number): boolean;
@@ -43,6 +44,11 @@ export interface TransportService {
 export interface SliceService {
   /** Transient positions (seconds) inside [start, end). */
   autoSlice(sourceId: string, start: number, end: number, sensitivity: number): number[];
+}
+
+export interface AnalysisService {
+  /** Seconds into the recording where it becomes audible (0 for silence / unknown). */
+  firstAudible(sourceId: string): number;
 }
 
 export interface TempoService {

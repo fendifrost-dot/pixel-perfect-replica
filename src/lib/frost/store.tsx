@@ -3,6 +3,7 @@ import { createEmptyProject } from "./demo";
 import { importService, transportService, playbackService } from "./engine";
 import { currentKey, library } from "./persist";
 import type { LoopMode } from "./services";
+import { patternSections, songSections } from "./timing";
 import type { Project } from "./types";
 import { prepareStretches } from "./voice";
 
@@ -97,8 +98,15 @@ export function FrostProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  /** True while Play is previewing the recording because the beat has nothing to play yet. */
+  const previewing = useRef(false);
+
   const stopTransport = useCallback(() => {
     if (transportService.isRunning()) transportService.stop();
+    if (previewing.current) {
+      previewing.current = false;
+      playbackService.stopAudition();
+    }
     setPlaying(false);
     setCurrentStep(-1);
   }, []);
@@ -172,14 +180,42 @@ export function FrostProvider({ children }: { children: ReactNode }) {
   }, [project.pads, project.slices, project.bpm, audioVersion]);
 
   const togglePlay = useCallback(() => {
-    if (transportService.isRunning()) {
+    if (transportService.isRunning() || previewing.current) {
       stopTransport();
-    } else {
-      void playbackService.resume();
+      return;
+    }
+    void playbackService.resume();
+    const p = ref.current;
+    const sections = loopMode === "song" ? songSections(p) : patternSections(p, 1);
+    const padHasAudio = new Set(p.pads.filter((x) => x.sliceId).map((x) => x.id));
+    const hasHits = sections.some((s) => s.pattern.notes.some((n) => padHasAudio.has(n.padId)));
+    if (hasHits) {
       transportService.start(() => ref.current, setCurrentStep, () => metroRef.current, loopMode);
       setPlaying(true);
+      return;
     }
-  }, [loopMode, stopTransport]);
+    // Nothing sequenced yet: Play previews the recording instead of silently doing nothing.
+    const src = p.sources.find((s) => s.id === p.activeSourceId);
+    if (!src) {
+      notify("Import a recording first — Play plays your beat, or the recording while the beat is empty.");
+      return;
+    }
+    const sel = p.selection?.sourceId === src.id && p.selection.end - p.selection.start > 0.05 ? p.selection : null;
+    const start = sel ? sel.start : 0;
+    const end = sel ? sel.end : src.durationSec;
+    const started = playbackService.audition(src.id, start, end, () => {
+      if (!previewing.current) return;
+      previewing.current = false;
+      setPlaying(false);
+    });
+    if (!started) {
+      notify("This recording's audio isn't loaded. Re-import it.");
+      return;
+    }
+    previewing.current = true;
+    setPlaying(true);
+    notify(sel ? "No hits in the beat yet — playing your selection." : "No hits in the beat yet — playing the recording.");
+  }, [loopMode, notify, stopTransport]);
 
   const setLoopMode = useCallback(
     (m: LoopMode) => {

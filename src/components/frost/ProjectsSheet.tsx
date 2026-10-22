@@ -1,19 +1,25 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { FilePlus2, Trash2, X } from "lucide-react";
 import { useFrost } from "@/lib/frost/store";
 import { library } from "@/lib/frost/persist";
 import { cn } from "@/lib/utils";
 
-/** Project switcher: rename, open, new, delete. Projects and their audio live on this device. */
+/**
+ * Project switcher: rename, open, new, delete. Projects and their audio live on this device.
+ * Rendered into document.body: the top bar's backdrop-blur makes it a containing block, which would
+ * otherwise pin this `fixed` sheet to the header instead of the viewport.
+ */
 export function ProjectsSheet({ onClose }: { onClose: () => void }) {
-  const { project, commit, projectKey, openProject, newProject, notify } = useFrost();
+  const { project, commit, projectKey, openProject, newProject, notify, saveState } = useFrost();
   const [list, setList] = useState<{ key: string; name: string; savedAt: number }[]>([]);
   const refresh = () => library.list().then(setList).catch(() => setList([]));
+  // Re-read whenever the open project finishes saving, so a just-started or just-renamed draft is listed.
   useEffect(() => {
     void refresh();
-  }, []);
+  }, [saveState]);
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-40 flex items-end bg-black/50 sm:items-center sm:justify-center" onClick={onClose}>
       <div className="safe-bottom max-h-[85dvh] w-full overflow-y-auto rounded-t-xl bg-background p-4 sm:max-w-md sm:rounded-xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-center justify-between">
@@ -64,6 +70,7 @@ export function ProjectsSheet({ onClose }: { onClose: () => void }) {
           <FilePlus2 className="size-4" /> New project
         </button>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

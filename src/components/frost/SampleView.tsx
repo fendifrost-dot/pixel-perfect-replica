@@ -3,7 +3,7 @@ import { Headphones, Maximize2, Plus, Scissors, Square, Upload, Wand2 } from "lu
 import { useFrost, uid, fmt } from "@/lib/frost/store";
 import { audioStore } from "@/lib/frost/audioStore";
 import { boundaries, generateBeatGrid, moveBeat } from "@/lib/frost/analysis";
-import { importService, playbackService, sliceService, tempoService } from "@/lib/frost/engine";
+import { analysisService, importService, playbackService, sliceService, tempoService } from "@/lib/frost/engine";
 import { Waveform, type WaveMode } from "./Waveform";
 import { Segmented } from "./controls";
 import { cn } from "@/lib/utils";
@@ -51,6 +51,9 @@ export function SampleView() {
     setBusy(true);
     try {
       const asset = await importService.importFile(f);
+      // Start the default selection where the recording becomes audible, not in any leading silence.
+      const selStart = Math.min(analysisService.firstAudible(asset.id), Math.max(0, asset.durationSec - 0.5));
+      const selEnd = Math.min(asset.durationSec, selStart + 2);
       commit((p) => ({
         ...p,
         isDemo: false,
@@ -63,7 +66,7 @@ export function SampleView() {
         arrangement: p.isDemo ? [] : p.arrangement,
         export: p.isDemo ? { ...p.export, mode: "stems", range: "pattern" } : p.export,
         activeSourceId: asset.id,
-        selection: { sourceId: asset.id, start: 0, end: Math.min(2, asset.durationSec) },
+        selection: { sourceId: asset.id, start: selStart, end: selEnd },
         markers: { ...(p.isDemo ? {} : p.markers), [asset.id]: [] },
       }));
       bumpAudio();
