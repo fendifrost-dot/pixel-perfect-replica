@@ -7,6 +7,6 @@
 - [x] Request publishing in this turn; deployment completion must be confirmed separately.
 
 # AI-assisted slicing
-- [ ] Add imported-sample AI analysis with explicit audio-send consent and cancellation.
-- [ ] Review, audition and apply slice/pad suggestions without replacing occupied pads.
-- [ ] Validate model output and test the real imported-audio flow.
+- [x] Add imported-sample AI analysis with explicit audio-send consent and cancellation.
+- [x] Review, audition and apply slice/pad suggestions without replacing occupied pads.
+- [x] Validate model output and test the real imported-audio flow; successful Gateway response, assignment and saved-project reopen verified.
