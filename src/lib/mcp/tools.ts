@@ -9,6 +9,7 @@ import * as ops from "../frost/ops";
 import { detectOnsets, suggestTempo } from "../frost/analysis";
 import { decodeWav } from "../frost/wav";
 import type { Project, SourceAsset } from "../frost/types";
+import { cleanName } from "../frost/persist";
 import { cloudStore, editProject, type CloudRow } from "../cloud/store.server";
 
 const json = (v: unknown) => ({
@@ -118,7 +119,7 @@ export const tools = [
     inputSchema: { name: z.string().min(1), bpm: z.number().min(40).max(300).optional() },
     handler: async ({ name, bpm }) => {
       const key = "prj_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-      const p = { ...ops.newProject(name, bpm ?? 90), isDemo: false };
+      const p = { ...ops.newProject(cleanName(name), bpm ?? 90), isDemo: false };
       const row = await cloudStore().put(key, p, null);
       return json({ ok: true, key, updatedAt: row.updatedAt, project: ops.summarize(row.project) });
     },
@@ -149,7 +150,7 @@ export const tools = [
       swing: z.number().optional(),
       bank: z.enum(["A", "B", "C", "D"]).optional(),
     },
-    handler: async ({ project, ...f }) => edit(project, (p) => ops.setProjectFields(p, f)),
+    handler: async ({ project, ...f }) => edit(project, (p) => ops.setProjectFields(p, { ...f, name: f.name == null ? undefined : cleanName(f.name) })),
   }),
   defineTool({
     name: "list_drum_kits",
@@ -195,8 +196,7 @@ export const tools = [
       } catch {
         /* not WAV: the app fills in length/rate the first time it decodes the file */
       }
-      const fileName =
-        name ?? decodeURIComponent(new URL(url).pathname.split("/").pop() || "recording");
+      const fileName = cleanName(name ?? (new URL(url).pathname.split("/").pop() || "recording"));
       const asset: SourceAsset = {
         id: sourceId,
         name: fileName,

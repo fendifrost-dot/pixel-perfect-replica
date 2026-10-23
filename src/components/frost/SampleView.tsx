@@ -136,11 +136,13 @@ export function SampleView() {
       setAuditioning(false);
       return;
     }
-    if (!sel) return;
+    // No selection: play from the left edge of what's on screen to the end.
+    const a = sel ? sel.start : Math.max(0, Math.min(v0, dur - 0.05));
+    const b = sel ? sel.end : dur;
     void playbackService.resume();
-    if (!playbackService.audition(src.id, sel.start, sel.end)) return notify("This recording's audio isn't loaded. Re-import it.");
+    if (!playbackService.audition(src.id, a, b)) return notify("This recording's audio isn't loaded on this phone yet. Wait a moment, or re-import it.");
     setAuditioning(true);
-    auditionTimer.current = setTimeout(() => setAuditioning(false), (sel.end - sel.start) * 1000);
+    auditionTimer.current = setTimeout(() => setAuditioning(false), (b - a) * 1000);
   };
 
   const assignSelection = () => {
@@ -254,7 +256,7 @@ export function SampleView() {
 
         <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
           <span>
-            {mode === "select" && (sel ? `Selection ${(sel.end - sel.start).toFixed(3)}s${grid ? ` · ${(((sel.end - sel.start) * grid.bpm) / 60).toFixed(2)} beats` : ""}` : "Drag to select (none = whole file)")}
+            {mode === "select" && (sel ? `Selection ${(sel.end - sel.start).toFixed(3)}s${grid ? ` · ${(((sel.end - sel.start) * grid.bpm) / 60).toFixed(2)} beats` : ""}` : markers.length ? "Drag to select · tap a green marker to delete it" : "Drag to select (none = whole file)")}
             {mode === "chop" && (markers.length ? `${markers.length} marker${markers.length === 1 ? "" : "s"} · tap one to delete · tap empty to add` : "Tap to add a marker · drag to move")}
             {mode === "beats" && (grid ? "Drag beat markers onto the beat" : "Place beat markers under Tempo")}
             {" · pinch to zoom"}
@@ -284,7 +286,7 @@ export function SampleView() {
         </div>
 
         <div className={cn("grid gap-2", grid ? "grid-cols-3" : "grid-cols-2")}>
-          <button className={cn("btn", auditioning && "btn-on")} onClick={toggleAudition} disabled={!sel && !auditioning}>
+          <button className={cn("btn", auditioning && "btn-on")} onClick={toggleAudition}>
             {auditioning ? <Square className="size-4" /> : <Headphones className="size-4" />} {auditioning ? "Stop" : "Listen"}
           </button>
           {grid && (

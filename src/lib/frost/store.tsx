@@ -7,6 +7,7 @@ import { patternSections, songSections } from "./timing";
 import type { Project } from "./types";
 import { prepareStretches } from "./voice";
 import { pullAll, pushProject, syncEnabled } from "./sync";
+import { keepView } from "./merge";
 import { audioStore } from "./audioStore";
 
 export type View = "sample" | "pads" | "beat" | "export";
@@ -136,15 +137,21 @@ export function FrostProvider({ children }: { children: ReactNode }) {
   /** True for the one save that follows taking the cloud's copy (it is already in the library). */
   const skipSave = useRef(false);
 
-  /** Take a newer copy of the open project (edited by an assistant) without leaving the current tab. */
-  const adopt = useCallback(async (p: Project) => {
-    if (transportService.isRunning()) transportService.stop();
-    setPlaying(false);
-    setCurrentStep(-1);
+  /** The project object last written to the library (newer in-memory edits are still pending). */
+  const savedRef = useRef<Project | null>(null);
+
+  /**
+   * Take a newer copy of the open project (with an assistant's changes) without leaving the current
+   * tab, interrupting playback, or losing the selection / open pad. Skipped while a local edit is still
+   * waiting to save — the next save merges it instead.
+   */
+  const adopt = useCallback(async (incoming: Project) => {
+    if (savedRef.current && ref.current !== savedRef.current) return false;
+    const p = keepView(ref.current, incoming);
     skipSave.current = true;
+    savedRef.current = p;
     ref.current = p;
     setProject(p);
-    setPast([]);
     if (p.sources.some((s) => s.origin !== "demo" && !audioStore.hasBuffer(s.id))) {
       setLoadingAudio(true);
       try {
@@ -155,6 +162,7 @@ export function FrostProvider({ children }: { children: ReactNode }) {
         setAudioVersion((v) => v + 1);
       }
     }
+    return true;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const load = useCallback(
@@ -162,6 +170,7 @@ export function FrostProvider({ children }: { children: ReactNode }) {
       stopTransport();
       setPast([]);
       ref.current = p;
+      savedRef.current = p;
       setProject(p);
       setProjectKey(key);
       currentKey.set(key);
@@ -216,14 +225,13 @@ export function FrostProvider({ children }: { children: ReactNode }) {
       library
         .save(projectKey, project)
         .then(async () => {
+          savedRef.current = project;
           currentKey.set(projectKey);
           setSaveState("saved");
           if (!syncEnabled()) return;
           const r = await pushProject(projectKey);
-          if (!r.ok && "conflict" in r && projectKey === currentKey.get()) {
-            await adopt(r.conflict);
-            notify("This project was changed by an assistant — showing the latest version.");
-          }
+          if (r.ok && r.merged && projectKey === currentKey.get() && (await adopt(r.merged)))
+            notify("Merged with changes from an assistant.");
         })
         .catch(() => setSaveState("error"));
     }, 700);
@@ -241,12 +249,9 @@ export function FrostProvider({ children }: { children: ReactNode }) {
       if (removed.includes(k)) {
         notify("This project was deleted from the cloud.");
         await load({ ...createEmptyProject(), isDemo: true }, newKey());
-      } else if (changed.includes(k) && !transportService.isRunning()) {
+      } else if (changed.includes(k)) {
         const p = await library.load(k);
-        if (p) {
-          await adopt(p);
-          notify("Updated with changes from an assistant.");
-        }
+        if (p && (await adopt(p))) notify("Updated with changes from an assistant.");
       }
       setSyncTick((n) => n + 1);
     } catch {
