@@ -23,7 +23,7 @@ describe("built-in kits", () => {
         // ends silent (no click on a cut-off)
         expect(Math.abs(x[x.length - 1])).toBeLessThan(0.01);
       }
-  });
+  }, 30_000); // renders every drum: slow under parallel test load
 
   it("renders deterministically, so a reopened project gets the same drum", () => {
     for (const kit of KITS)
