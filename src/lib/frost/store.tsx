@@ -27,7 +27,7 @@ interface Ctx {
   view: View;
   setView: (v: View) => void;
   playing: boolean;
-  togglePlay: () => void;
+  togglePlay: () => void | Promise<void>;
   loopMode: LoopMode;
   setLoopMode: (m: LoopMode) => void;
   recording: boolean;
@@ -276,12 +276,16 @@ export function FrostProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(t);
   }, [project.pads, project.slices, project.bpm, audioVersion]);
 
-  const togglePlay = useCallback(() => {
+  const togglePlay = useCallback(async () => {
     if (transportService.isRunning() || previewing.current) {
       stopTransport();
       return;
     }
-    void playbackService.resume();
+    // Wake audio first: the transport schedules on the current context, so it must be the live one.
+    if (!playbackService.isReady() && !(await playbackService.resume())) {
+      notify("Audio is blocked on this phone. Check the volume, then press Play again.");
+      return;
+    }
     const p = ref.current;
     const sections = loopMode === "song" ? songSections(p) : patternSections(p, 1);
     const padHasAudio = new Set(p.pads.filter((x) => x.sliceId).map((x) => x.id));

@@ -45,10 +45,25 @@ export function PadsView() {
     }));
   };
 
+  const play = (pad: Pad, slice: (typeof project.slices)[number] | undefined) => {
+    if (playbackService.triggerPad(pad, slice, pad.velocity, project.bpm) || !slice) return;
+    const src = project.sources.find((s) => s.id === slice.sourceId);
+    notify(
+      src
+        ? `Pad ${pad.id}: “${src.name}” isn't loaded on this phone yet. Open Chop and wait for the waveform, or re-import it.`
+        : `Pad ${pad.id}: its recording is missing from this project. Assign a new chop.`,
+    );
+  };
+
   const down = (pad: Pad) => {
-    void playbackService.resume();
     const slice = project.slices.find((s) => s.id === pad.sliceId);
-    playbackService.triggerPad(pad, slice, pad.velocity, project.bpm); // sound first, UI after
+    // Sound first, UI after. If iOS has put audio to sleep, wake it first (one short delay).
+    if (playbackService.isReady()) play(pad, slice);
+    else
+      void playbackService.resume().then((ok) => {
+        if (ok) play(pad, slice);
+        else notify("Audio is blocked on this phone. Check the volume, then tap the pad again.");
+      });
     if (slice && recording && playing) record(pad);
     setHit((h) => ({ ...h, [pad.id]: true }));
     if (project.selectedPadId !== pad.id) commit((p) => ({ ...p, selectedPadId: pad.id }), { history: false });

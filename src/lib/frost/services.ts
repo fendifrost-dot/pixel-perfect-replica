@@ -17,7 +17,10 @@ export interface AudioImportService {
 export type LoopMode = "pattern" | "song";
 
 export interface PlaybackService {
-  resume(): Promise<void>;
+  /** Get audio running (reviving or replacing an interrupted iOS context). Resolves true when it is. */
+  resume(): Promise<boolean>;
+  /** True when sounds triggered now will be heard. */
+  isReady(): boolean;
   /** Play part of a recording once. `onEnd` fires when it finishes or is stopped. */
   audition(sourceId: string, start: number, end: number, onEnd?: () => void): boolean;
   stopAudition(): void;
