@@ -7,6 +7,7 @@ import { analysisService, importService, playbackService, sliceService, tempoSer
 import { Waveform, type WaveMode } from "./Waveform";
 import { Segmented } from "./controls";
 import { cn } from "@/lib/utils";
+import { AiChop } from "./AiChop";
 
 type ChopMethod = "transients" | "equal" | "beats";
 
@@ -115,7 +116,7 @@ export function SampleView() {
   const setSel = (start: number, end: number, final = true) => commit((p) => ({ ...p, selection: { sourceId: src.id, start, end } }), { history: final });
   const setMarkers = (m: number[], final: boolean) => commit((p) => ({ ...p, markers: { ...p.markers, [src.id]: m } }), { history: final });
   const useRange = !!sel && sel.end - sel.start > 0.05;
-  const range: [number, number] = useRange ? [sel!.start, sel!.end] : [0, dur];
+  const range: [number, number] = useRange && sel ? [sel.start, sel.end] : [0, dur];
   const inRange = markers.filter((m) => m > range[0] && m < range[1]);
   const clearSelection = () => {
     if (auditioning) toggleAudition();
@@ -345,6 +346,8 @@ export function SampleView() {
           </button>
         </div>
       </section>
+
+      {src.origin === "imported" && <AiChop source={src} start={range[0]} end={range[1]} disabled={!buffer || loadingAudio} />}
 
       <section className="panel space-y-2">
         <div className="eyebrow">Tempo of this recording</div>

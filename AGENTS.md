@@ -18,3 +18,4 @@
 - Cloud projects are a separate explicitly shared catalog; preserve device-only IndexedDB storage and never auto-upload its data, because sharing must be intentional.
 - Remote MCP uses the SDK-generated TanStack endpoint and lazy public-key client under src/lib/mcp; keep tools read-only and subject to anonymous database policies, because public access must not escalate privileges.
 - Audio storage stays private without anonymous object policies while workspace policy blocks public buckets; do not simulate public buckets with signed links or policy workarounds.
+- AI slicing sends only an explicitly consented selection through an audio service to a same-origin server endpoint; use a discovered audio-capable Gateway model, keep prompts and keys server-only, validate suggestions, and apply reviewed assignments as one undoable edit without overwriting occupied pads.
