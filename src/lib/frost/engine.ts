@@ -8,6 +8,7 @@ import { library } from "./persist";
 import { findDrum, kitSourceId, parseKitSourceId } from "./kits";
 import type {
   AnalysisService,
+  AiSliceService,
   AudioImportService,
   KitService,
   LoopMode,
@@ -19,6 +20,8 @@ import type {
 import { eventsInRange, patternSections, songSections, sectionsLength, stepDur } from "./timing";
 import { CHOKE_FADE, MIN_RELEASE, padSource, startVoice, type VoiceHandle } from "./voice";
 import type { Pad, Project, Slice } from "./types";
+import { encodeWav24 } from "./wav";
+import { validateAiSlices } from "./aiSlices";
 
 let ctx: AudioContext | null = null;
 export function ac(): AudioContext {
@@ -356,6 +359,26 @@ export const tempoService: TempoService = {
   suggestBpm(sourceId) {
     const b = audioStore.getBuffer(sourceId);
     return b ? suggestTempo(monoOf(b), b.sampleRate) : null;
+  },
+};
+
+export const aiSliceService: AiSliceService = {
+  async suggest(sourceId, start, end, availablePads, signal) {
+    const buffer = audioStore.getBuffer(sourceId);
+    if (!buffer) throw new Error("Re-import this recording before using AI.");
+    if (start < 0 || end > buffer.duration || end <= start || end - start > 60) throw new Error("Choose a selection up to 60 seconds.");
+    if (!availablePads.length) throw new Error("Choose a bank with empty pads.");
+    const a = Math.floor(start * buffer.sampleRate), b = Math.ceil(end * buffer.sampleRate);
+    const channels = Array.from({ length: Math.min(2, buffer.numberOfChannels) }, (_, c) => buffer.getChannelData(c).slice(a, b));
+    const { bytes } = encodeWav24(channels, buffer.sampleRate);
+    const form = new FormData();
+    form.set("audio", new Blob([bytes as Uint8Array<ArrayBuffer>], { type: "audio/wav" }), "selection.wav");
+    form.set("pads", JSON.stringify(availablePads));
+    const response = await fetch("/api/ai-slices", { method: "POST", body: form, signal });
+    const data = await response.json();
+    if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "AI analysis is unavailable.");
+    const result = validateAiSlices(data, end - start, availablePads);
+    return { ...result, slices: result.slices.map((s) => ({ ...s, start: s.start + start, end: Math.min(end, s.end + start) })) };
   },
 };
 

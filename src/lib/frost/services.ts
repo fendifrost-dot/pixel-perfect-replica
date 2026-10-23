@@ -3,6 +3,7 @@
  * See FRONTEND_HANDOFF.md for implementation notes.
  */
 import type { Pad, Project, SourceAsset, Slice } from "./types";
+import type { AiSliceResult } from "./aiSlices";
 
 export type Availability = { available: true } | { available: false; reason: string };
 
@@ -49,6 +50,10 @@ export interface SliceService {
 export interface AnalysisService {
   /** Seconds into the recording where it becomes audible (0 for silence / unknown). */
   firstAudible(sourceId: string): number;
+}
+
+export interface AiSliceService {
+  suggest(sourceId: string, start: number, end: number, availablePads: number[], signal: AbortSignal): Promise<AiSliceResult>;
 }
 
 export interface TempoService {
