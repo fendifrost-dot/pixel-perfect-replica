@@ -46,20 +46,49 @@ const uid = () => Math.random().toString(36).slice(2, 10);
  * brings it back — sounds then vanish silently. If resuming doesn't work quickly, replace the
  * context (decoded AudioBuffers are independent of it, so nothing has to be reloaded).
  */
+let stuck = false;
 async function wake(): Promise<boolean> {
   const c = ac();
   if (c.state === "running") return true;
   const timeout = new Promise<void>((r) => setTimeout(r, 400));
   await Promise.race([c.resume().catch(() => undefined), timeout]);
   if (ac().state === "running") return true;
-  try {
-    void c.close();
-  } catch {
-    /* already closed */
+  // Can't safely replace here: we're past the tap, and iOS keeps a context made outside a tap silent.
+  // Mark it so the very next tap swaps in a fresh one while the tap is still active.
+  stuck = true;
+  return false;
+}
+
+/** Runs synchronously inside a real tap — the only moment iOS reliably lets audio start. */
+function unlockInGesture() {
+  if (!ctx) return;
+  if (stuck || (ctx.state as string) === "closed") {
+    try {
+      void ctx.close();
+    } catch {
+      /* already closed */
+    }
+    ctx = null;
+    stuck = false;
   }
-  ctx = null;
-  await Promise.race([ac().resume().catch(() => undefined), new Promise<void>((r) => setTimeout(r, 400))]);
-  return ac().state === "running";
+  const c = ac();
+  if (c.state !== "running") void c.resume().catch(() => undefined);
+  // A silent one-sample blip finishes the iOS unlock.
+  try {
+    const s = c.createBufferSource();
+    s.buffer = c.createBuffer(1, 1, c.sampleRate);
+    s.connect(c.destination);
+    s.start();
+  } catch {
+    /* ignore */
+  }
+}
+
+if (typeof window !== "undefined") {
+  for (const ev of ["pointerdown", "touchend", "keydown"]) window.addEventListener(ev, unlockInGesture, { capture: true, passive: true });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && ctx && ctx.state !== "running") stuck = true;
+  });
 }
 
 const monoCache = new Map<AudioBuffer, Float32Array>();
