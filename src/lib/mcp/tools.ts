@@ -379,7 +379,7 @@ export const tools = [
     name: "set_pad",
     title: "Change a pad",
     description:
-      "Change a pad. fit: off | stretch (keeps pitch) | repitch (classic, pitch follows) to lengthBeats at the project BPM. volume 0–1, pan −1–1, pitch −24–24 st, velocity 1–127, plays whole|held|loop, chokeGroup 0–4 (0 = none), reverse, fadeInMs, fadeOutMs, chopName (rename its chop), empty=true clears the pad.",
+      "Change a pad. fit: off | stretch (keeps pitch) | repitch (classic, pitch follows) to lengthBeats at the project BPM. volume 0–1, pan −1–1, pitch −24–24 st, velocity 1–127, plays whole|held|loop, chokeGroup 0–4 (0 = none), reverse, fadeInMs, fadeOutMs, chopName (rename its chop), chopStart/chopEnd (seconds into the recording) trim or extend its chop — a fitted pad keeps its speed (its lengthBeats scales with the chop) unless lengthBeats is also given, empty=true clears the pad.",
     inputSchema: {
       project: PROJECT,
       pad: PAD,
@@ -395,6 +395,8 @@ export const tools = [
       fadeInMs: z.number().optional(),
       fadeOutMs: z.number().optional(),
       chopName: z.string().optional(),
+      chopStart: z.number().optional(),
+      chopEnd: z.number().optional(),
       empty: z.boolean().optional(),
     },
     handler: async ({ project, pad, ...f }) => edit(project, (p) => ops.setPad(p, pad, f)),

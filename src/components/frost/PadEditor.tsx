@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { ChevronDown, Trash2 } from "lucide-react";
+import { ChevronDown, Scissors, Trash2 } from "lucide-react";
 import { useFrost } from "@/lib/frost/store";
 import type { Pad } from "@/lib/frost/types";
 import { playPlan } from "@/lib/frost/timing";
 import { pruneKitSources } from "@/lib/frost/kitActions";
 import { Segmented, Slider } from "./controls";
+import { ChopTrim } from "./ChopTrim";
 import { cn } from "@/lib/utils";
 
 const LENGTHS = [0.25, 0.5, 1, 2, 3, 4, 6, 8, 12, 16, 32];
@@ -15,18 +16,24 @@ const SPEEDS = [
   { value: 2, label: "2× faster" },
 ];
 const quarter = (b: number) => Math.max(0.25, Math.round(b * 4) / 4);
-const beatLabel = (b: number) => (b >= 4 && b % 4 === 0 ? `${b / 4} bar${b > 4 ? "s" : ""}` : b < 1 ? `${b}b` : `${b} beat${b > 1 ? "s" : ""}`);
+const beatLabel = (b: number) => {
+  if (b >= 4 && b % 4 === 0) return `${b / 4} bar${b > 4 ? "s" : ""}`;
+  const n = Number(b.toFixed(2));
+  return b < 1 ? `${n}b` : `${n} beat${n === 1 ? "" : "s"}`;
+};
 
 export function PadEditor({ pad, onAddDrum }: { pad: Pad; onAddDrum?: () => void }) {
   const { project, commit } = useFrost();
   const [more, setMore] = useState(false);
+  const [trim, setTrim] = useState(false);
   const slice = project.slices.find((s) => s.id === pad.sliceId);
   const plan = slice ? playPlan(pad, slice, project.bpm) : null;
   const grid = slice ? project.beatGrids[slice.sourceId] : undefined;
   const set = (patch: Partial<Pad>, history = false) => commit((p) => ({ ...p, pads: p.pads.map((x) => (x.id === pad.id ? { ...x, ...patch } : x)) }), { history });
 
   /** Beats the chop lasts at the recording's own tempo (beat markers), else at project BPM. */
-  const naturalBeats = slice ? quarter(((slice.end - slice.start) * (grid?.bpm ?? project.bpm)) / 60) : 1;
+  const naturalExact = slice ? ((slice.end - slice.start) * (grid?.bpm ?? project.bpm)) / 60 : 1;
+  const naturalBeats = quarter(naturalExact);
   const beats = pad.lengthUnit === "off" ? null : pad.lengthUnit === "bars" ? pad.lengthValue * 4 : pad.lengthValue;
   const setFit = (v: "off" | "stretch" | "repitch") =>
     v === "off"
@@ -71,6 +78,13 @@ export function PadEditor({ pad, onAddDrum }: { pad: Pad; onAddDrum?: () => void
       </div>
 
       <div className="space-y-2">
+        <button className={cn("btn w-full text-xs", trim && "btn-on")} onClick={() => setTrim(!trim)}>
+          <Scissors className="size-3.5" /> {trim ? "Done trimming" : "Trim this chop"}
+        </button>
+        {trim && <ChopTrim pad={pad} slice={slice} />}
+      </div>
+
+      <div className="space-y-2">
         <div className="eyebrow">Fit to the beat</div>
         <Segmented
           value={fit}
@@ -87,7 +101,7 @@ export function PadEditor({ pad, onAddDrum }: { pad: Pad; onAddDrum?: () => void
               {SPEEDS.map((sp) => {
                 const b = quarter(naturalBeats / sp.value);
                 return (
-                  <button key={sp.value} className={cn("btn min-h-9 flex-col gap-0 px-1 text-xs leading-tight", beats === b && "btn-on")} onClick={() => setBeats(b)}>
+                  <button key={sp.value} className={cn("btn min-h-9 flex-col gap-0 px-1 text-xs leading-tight", beats != null && Math.abs(naturalExact / beats - sp.value) < 0.03 * sp.value && "btn-on")} onClick={() => setBeats(b)}>
                     <span className="font-semibold">{sp.label}</span>
                     <span className="font-mono text-[10px] opacity-70">{beatLabel(b)}</span>
                   </button>

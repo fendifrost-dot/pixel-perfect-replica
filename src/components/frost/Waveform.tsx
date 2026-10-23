@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { waveColumns } from "@/lib/frost/analysis";
+import { cn } from "@/lib/utils";
 
 export type WaveMode = "select" | "chop" | "beats";
 
@@ -19,6 +20,7 @@ interface Props {
   onSelect: (start: number, end: number, final: boolean) => void;
   onMarkers: (m: number[], final: boolean) => void;
   onBeatMove: (index: number, t: number, final: boolean) => void;
+  className?: string;
 }
 
 const MIN_SPAN = 0.02;
@@ -141,7 +143,7 @@ export function Waveform(props: Props) {
   return (
     <canvas
       ref={canvas}
-      className="no-touch-scroll block h-44 w-full rounded-md bg-background sm:h-56"
+      className={cn("no-touch-scroll block w-full rounded-md bg-background", props.className ?? "h-44 sm:h-56")}
       onPointerDown={(e) => {
         (e.target as Element).setPointerCapture(e.pointerId);
         pointers.current.set(e.pointerId, e.clientX);
