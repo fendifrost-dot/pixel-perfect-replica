@@ -6,7 +6,7 @@ import { recordPosition } from "@/lib/frost/timing";
 import { BANKS, type Pad } from "@/lib/frost/types";
 import { PadEditor } from "./PadEditor";
 import { DrumPicker } from "./DrumPicker";
-import { Drum } from "lucide-react";
+import { Drum, Square } from "lucide-react";
 import { Segmented } from "./controls";
 import { cn } from "@/lib/utils";
 
@@ -18,7 +18,7 @@ const COLOR: Record<Pad["color"], string> = {
 const HIT: Record<Pad["color"], string> = { teal: "bg-teal/45", purple: "bg-purple/45", amber: "bg-primary/45" };
 
 export function PadsView() {
-  const { project, commit, recording, playing, loopMode, notify, setView } = useFrost();
+  const { project, commit, recording, playing, togglePlay, loopMode, notify, setView } = useFrost();
   const [hit, setHit] = useState<Record<string, boolean>>({});
   const [drumsFor, setDrumsFor] = useState<string | null>(null);
   const warned = useRef(false);
@@ -80,7 +80,23 @@ export function PadsView() {
   return (
     <div className="landscape:grid landscape:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] landscape:gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-4">
       <div className="space-y-3">
-        <Segmented value={project.bank} onChange={(b) => commit((p) => ({ ...p, bank: b }), { history: false })} options={BANKS.map((b) => ({ value: b, label: `Bank ${b}` }))} />
+        <div className="flex gap-2">
+          <div className="min-w-0 flex-1">
+            <Segmented value={project.bank} onChange={(b) => commit((p) => ({ ...p, bank: b }), { history: false })} options={BANKS.map((b) => ({ value: b, label: `Bank ${b}` }))} />
+          </div>
+          <button
+            aria-label="Stop all sound"
+            className="btn shrink-0 px-3 text-xs"
+            onClick={() => {
+              // Silences every pad still ringing (and the beat, if it's playing).
+              if (playing) void togglePlay();
+              playbackService.stopAll();
+              setHit({});
+            }}
+          >
+            <Square className="size-3.5 fill-current" /> Stop
+          </button>
+        </div>
         {empty && (
           <div className="grid grid-cols-2 gap-2">
             <button className="btn text-xs" onClick={() => setDrumsFor(selected?.id ?? "")}>

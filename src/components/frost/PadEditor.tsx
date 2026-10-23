@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Trash2 } from "lucide-react";
 import { useFrost } from "@/lib/frost/store";
 import type { Pad } from "@/lib/frost/types";
 import { playPlan } from "@/lib/frost/timing";
@@ -8,6 +8,14 @@ import { Segmented, Slider } from "./controls";
 import { cn } from "@/lib/utils";
 
 const LENGTHS = [0.25, 0.5, 1, 2, 3, 4, 6, 8, 12, 16, 32];
+/** Speed relative to the chop's natural length: ½× lasts twice as many beats, 2× half as many. */
+const SPEEDS = [
+  { value: 0.5, label: "½× slower" },
+  { value: 1, label: "1× natural" },
+  { value: 2, label: "2× faster" },
+];
+const quarter = (b: number) => Math.max(0.25, Math.round(b * 4) / 4);
+const beatLabel = (b: number) => (b >= 4 && b % 4 === 0 ? `${b / 4} bar${b > 4 ? "s" : ""}` : b < 1 ? `${b}b` : `${b} beat${b > 1 ? "s" : ""}`);
 
 export function PadEditor({ pad, onAddDrum }: { pad: Pad; onAddDrum?: () => void }) {
   const { project, commit } = useFrost();
@@ -18,7 +26,7 @@ export function PadEditor({ pad, onAddDrum }: { pad: Pad; onAddDrum?: () => void
   const set = (patch: Partial<Pad>, history = false) => commit((p) => ({ ...p, pads: p.pads.map((x) => (x.id === pad.id ? { ...x, ...patch } : x)) }), { history });
 
   /** Beats the chop lasts at the recording's own tempo (beat markers), else at project BPM. */
-  const naturalBeats = slice ? Math.max(0.25, Math.round((((slice.end - slice.start) * (grid?.bpm ?? project.bpm)) / 60) * 4) / 4) : 1;
+  const naturalBeats = slice ? quarter(((slice.end - slice.start) * (grid?.bpm ?? project.bpm)) / 60) : 1;
   const beats = pad.lengthUnit === "off" ? null : pad.lengthUnit === "bars" ? pad.lengthValue * 4 : pad.lengthValue;
   const setFit = (v: "off" | "stretch" | "repitch") =>
     v === "off"
@@ -27,6 +35,12 @@ export function PadEditor({ pad, onAddDrum }: { pad: Pad; onAddDrum?: () => void
   const setBeats = (b: number) => set(b >= 4 && b % 4 === 0 ? { lengthUnit: "bars", lengthValue: b / 4 } : { lengthUnit: "beats", lengthValue: b }, true);
   const fit = pad.lengthUnit === "off" ? "off" : pad.timeMode;
   const pitchLocked = fit === "repitch";
+  /** How fast the chop plays compared with the original recording (1 = untouched). */
+  const realSpeed = slice && plan && plan.duration > 0 ? (slice.end - slice.start) / plan.duration : 1;
+  const speedText = grid
+    ? `its groove runs at ${Math.round(grid.bpm * realSpeed)} BPM under your ${project.bpm}`
+    : `${realSpeed.toFixed(2)}× its original speed`;
+  const emptyPad = () => commit((p) => pruneKitSources({ ...p, pads: p.pads.map((x) => (x.id === pad.id ? { ...x, sliceId: null } : x)) }));
 
   if (!slice) {
     return (
@@ -51,6 +65,9 @@ export function PadEditor({ pad, onAddDrum }: { pad: Pad; onAddDrum?: () => void
           value={slice.name}
           onChange={(e) => commit((p) => ({ ...p, slices: p.slices.map((s) => (s.id === slice.id ? { ...s, name: e.target.value } : s)) }), { history: false })}
         />
+        <button aria-label={`Remove the sound from pad ${pad.id}`} className="btn min-h-8 shrink-0 px-2.5 text-xs" onClick={emptyPad}>
+          <Trash2 className="size-3.5" /> Remove
+        </button>
       </div>
 
       <div className="space-y-2">
@@ -65,19 +82,34 @@ export function PadEditor({ pad, onAddDrum }: { pad: Pad; onAddDrum?: () => void
           ]}
         />
         {beats != null && (
-          <div className="flex gap-1 overflow-x-auto pb-1">
-            {[...new Set([...LENGTHS, beats])].sort((a, b) => a - b).map((b) => (
-              <button key={b} className={cn("btn min-h-9 shrink-0 px-2.5 font-mono text-xs", beats === b && "btn-on")} onClick={() => setBeats(b)}>
-                {b >= 4 && b % 4 === 0 ? `${b / 4} bar` : b < 1 ? `${b}b` : `${b} beat${b > 1 ? "s" : ""}`}
-              </button>
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-3 gap-1">
+              {SPEEDS.map((sp) => {
+                const b = quarter(naturalBeats / sp.value);
+                return (
+                  <button key={sp.value} className={cn("btn min-h-9 flex-col gap-0 px-1 text-xs leading-tight", beats === b && "btn-on")} onClick={() => setBeats(b)}>
+                    <span className="font-semibold">{sp.label}</span>
+                    <span className="font-mono text-[10px] opacity-70">{beatLabel(b)}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="eyebrow pt-1">Or pick the length</div>
+            <div className="flex gap-1 overflow-x-auto pb-1">
+              {[...new Set([...LENGTHS, beats])].sort((a, b) => a - b).map((b) => (
+                <button key={b} className={cn("btn min-h-9 shrink-0 px-2.5 font-mono text-xs", beats === b && "btn-on")} onClick={() => setBeats(b)}>
+                  {beatLabel(b)}
+                </button>
+              ))}
+            </div>
+          </>
         )}
         {plan && (
           <p className="text-[11px] text-muted-foreground">
             {fit === "off" && "Plays at its own length and speed."}
-            {fit === "stretch" && `Stretched to ${beats} beat${beats === 1 ? "" : "s"} at ${project.bpm} BPM — pitch stays the same.`}
-            {fit === "repitch" && `Sped/slowed to ${beats} beat${beats === 1 ? "" : "s"} at ${project.bpm} BPM — pitch moves ${plan.pitchSemis >= 0 ? "+" : ""}${plan.pitchSemis.toFixed(1)} st, like a classic sampler.`}
+            {fit === "stretch" && `Lasts ${beatLabel(beats!)} at ${project.bpm} BPM — ${speedText}. Pitch stays the same.`}
+            {fit === "repitch" && `Lasts ${beatLabel(beats!)} at ${project.bpm} BPM — ${speedText}. Pitch moves ${plan.pitchSemis >= 0 ? "+" : ""}${plan.pitchSemis.toFixed(1)} st, like a classic sampler.`}
+            {fit !== "off" && ` Natural length ≈ ${beatLabel(naturalBeats)}.`}
           </p>
         )}
       </div>
@@ -125,14 +157,9 @@ export function PadEditor({ pad, onAddDrum }: { pad: Pad; onAddDrum?: () => void
               options={[0, 1, 2, 3, 4].map((n) => ({ value: n, label: n === 0 ? "None" : String(n) }))}
             />
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <button className={cn("btn text-xs", pad.reverse && "btn-on")} onClick={() => set({ reverse: !pad.reverse }, true)}>
-              Reverse {pad.reverse ? "on" : "off"}
-            </button>
-            <button className="btn text-xs" onClick={() => commit((p) => pruneKitSources({ ...p, pads: p.pads.map((x) => (x.id === pad.id ? { ...x, sliceId: null } : x)) }))}>
-              Empty this pad
-            </button>
-          </div>
+          <button className={cn("btn w-full text-xs", pad.reverse && "btn-on")} onClick={() => set({ reverse: !pad.reverse }, true)}>
+            Reverse {pad.reverse ? "on" : "off"}
+          </button>
         </div>
       )}
     </section>
