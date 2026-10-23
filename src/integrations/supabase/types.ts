@@ -14,7 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      projects: {
+        Row: {
+          audio_paths: string[]
+          created_at: string
+          id: string
+          name: string
+          project: Json
+          schema_version: number
+          updated_at: string
+        }
+        Insert: {
+          audio_paths?: string[]
+          created_at?: string
+          id?: string
+          name?: string
+          project?: Json
+          schema_version?: number
+          updated_at?: string
+        }
+        Update: {
+          audio_paths?: string[]
+          created_at?: string
+          id?: string
+          name?: string
+          project?: Json
+          schema_version?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
