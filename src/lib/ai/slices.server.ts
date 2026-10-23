@@ -34,7 +34,7 @@ export async function handleAiSlices(request: Request): Promise<Response> {
     try { raw = await result.output; }
     catch (error) {
       if (!NoObjectGeneratedError.isInstance(error)) throw error;
-      try { raw = JSON.parse(error.text); }
+      try { raw = JSON.parse(error.text ?? ""); }
       catch { return Response.json({ error: "AI could not produce usable suggestions. Your sample is unchanged." }, { status: 422 }); }
     }
     const suggestions = validateAiSlices(raw, duration, pads);
