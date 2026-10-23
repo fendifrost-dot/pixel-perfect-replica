@@ -92,6 +92,21 @@ describe("project operations", () => {
     expect(() => ops.setPad(p, "E1", {})).toThrow(/Unknown pad/);
   });
 
+  it("trims a chop and keeps a fitted pad's speed", () => {
+    let p = ops.makeChops(base(), "src_a", [{ start: 0, end: 2 }], { pads: ["A1"] }).project;
+    p = ops.setPad(p, "A1", { fit: "stretch", lengthBeats: 8 }); // 2 s over 8 beats
+    p = ops.setPad(p, "A1", { chopEnd: 1.5 }); // 25% shorter -> 6 beats, same speed
+    const pad = p.pads.find((x) => x.id === "A1")!;
+    const s = p.slices.find((x) => x.id === pad.sliceId)!;
+    expect([s.start, s.end]).toEqual([0, 1.5]);
+    expect(pad).toMatchObject({ lengthUnit: "beats", lengthValue: 6 });
+    // past the recording's end is clamped; an explicit length wins over keeping speed
+    p = ops.setPad(p, "A1", { chopEnd: 99, lengthBeats: 4 });
+    expect(p.slices.find((x) => x.id === pad.sliceId)!.end).toBe(8);
+    expect(p.pads.find((x) => x.id === "A1")).toMatchObject({ lengthUnit: "bars", lengthValue: 1 });
+    expect(() => ops.setPad(p, "A1", { chopStart: 1, chopEnd: 1 })).toThrow(ops.OpsError);
+  });
+
   it("adds, replaces and removes hits", () => {
     let p = base();
     p = ops.addHits(p, undefined, [

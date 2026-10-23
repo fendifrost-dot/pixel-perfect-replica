@@ -247,6 +247,39 @@ export interface PadPatch {
   fadeInMs?: number | undefined;
   fadeOutMs?: number | undefined;
   empty?: boolean | undefined;
+  /** Move the chop's edges (seconds into the recording). */
+  chopStart?: number | undefined;
+  chopEnd?: number | undefined;
+}
+
+/** Shortest chop a trim may leave. */
+export const MIN_CHOP_SEC = 0.01;
+
+/**
+ * Move a pad's chop edges. A fitted pad keeps its SPEED (½×, 1×, …): its length in beats scales
+ * with the chop, so trimming a half-speed chop leaves it half speed, just shorter.
+ */
+export function trimChop(p: Project, padId: string, start: number, end: number, keepSpeed = true): Project {
+  const pad = padOf(p, padId);
+  const sid = must(pad.sliceId, `Pad ${pad.id} is empty; there is no chop to trim.`);
+  const slice = p.slices.find((s) => s.id === sid)!;
+  const total = p.sources.find((s) => s.id === slice.sourceId)?.durationSec || Infinity;
+  const a = Math.max(0, Math.min(start, end));
+  const b = Math.min(total, Math.max(start, end));
+  if (!(b - a >= MIN_CHOP_SEC)) throw new OpsError(`A chop must be at least ${MIN_CHOP_SEC * 1000} ms long.`);
+  let next = pad;
+  const oldLen = slice.end - slice.start;
+  if (keepSpeed && pad.lengthUnit !== "off" && oldLen > 0) {
+    const beats = (pad.lengthUnit === "bars" ? pad.lengthValue * 4 : pad.lengthValue) * ((b - a) / oldLen);
+    // Not snapped to quarter beats: small trims must not round back and change the speed.
+    const q = Math.max(0.01, Math.round(beats * 1000) / 1000);
+    next = q >= 4 && q % 4 === 0 ? { ...pad, lengthUnit: "bars", lengthValue: q / 4 } : { ...pad, lengthUnit: "beats", lengthValue: q };
+  }
+  return {
+    ...p,
+    slices: p.slices.map((s) => (s.id === sid ? { ...s, start: a, end: b } : s)),
+    pads: p.pads.map((x) => (x.id === pad.id ? next : x)),
+  };
 }
 
 export function setPad(p: Project, padId: string, f: PadPatch): Project {
@@ -295,7 +328,11 @@ export function setPad(p: Project, padId: string, f: PadPatch): Project {
     const sid = must(pad.sliceId, `Pad ${pad.id} is empty; there is no chop to rename.`);
     slices = slices.map((s) => (s.id === sid ? { ...s, name: f.chopName!.trim() || s.name } : s));
   }
-  return { ...p, slices, pads: p.pads.map((x) => (x.id === pad.id ? next : x)) };
+  const out = { ...p, slices, pads: p.pads.map((x) => (x.id === pad.id ? next : x)) };
+  if (f.chopStart == null && f.chopEnd == null) return out;
+  const cur = out.slices.find((s) => s.id === must(pad.sliceId, `Pad ${pad.id} is empty; there is no chop to trim.`))!;
+  // An explicit lengthBeats in the same call wins over keeping the speed.
+  return trimChop(out, pad.id, f.chopStart ?? cur.start, f.chopEnd ?? cur.end, f.lengthBeats == null);
 }
 
 export function setBeatMarkers(
