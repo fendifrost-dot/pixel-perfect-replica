@@ -1,0 +1,884 @@
+{
+  "version": 1,
+  "sdk_version": "3.2.2",
+  "path": "/mcp",
+  "auth": {
+    "type": "none"
+  },
+  "mcp": {
+    "server": {
+      "name": "frost-sampler",
+      "version": "2.0.0",
+      "title": "Frost Sampler"
+    },
+    "tools": [
+      {
+        "name": "list_projects",
+        "title": "List projects",
+        "description": "List every Frost Sampler project synced to the cloud (key, name, last change).",
+        "annotations": {
+          "readOnlyHint": true
+        },
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "get_project",
+        "title": "Read a project",
+        "description": "Read a project: tempo, feel, recordings (with chop/beat markers), pads and their settings, patterns with every hit, song order and export settings. Set raw=true for the full stored JSON.",
+        "annotations": {
+          "readOnlyHint": true
+        },
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Project key (from list_projects) or exact project name."
+            },
+            "raw": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "project"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "create_project",
+        "title": "Create a project",
+        "description": "Create a new empty project (4 banks of 16 pads, one 2-bar pattern). It appears in the app on the next sync.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "bpm": {
+              "type": "number",
+              "minimum": 40,
+              "maximum": 300
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "delete_project",
+        "title": "Delete a project",
+        "description": "Delete a project from the cloud. A phone that still has it will upload it again unless it is deleted there too.",
+        "annotations": {
+          "destructiveHint": true
+        },
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Project key (from list_projects) or exact project name."
+            }
+          },
+          "required": [
+            "project"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "update_project",
+        "title": "Set name, BPM, feel",
+        "description": "Rename the project, set the beat's BPM (40–300), the feel (quantize off|1/8|1/16|1/32, applied on playback; swing 50–75%) or the bank shown on Pads.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Project key (from list_projects) or exact project name."
+            },
+            "name": {
+              "type": "string"
+            },
+            "bpm": {
+              "type": "number"
+            },
+            "quantize": {
+              "type": "string",
+              "enum": [
+                "off",
+                "1/8",
+                "1/16",
+                "1/32"
+              ]
+            },
+            "swing": {
+              "type": "number"
+            },
+            "bank": {
+              "type": "string",
+              "enum": [
+                "A",
+                "B",
+                "C",
+                "D"
+              ]
+            }
+          },
+          "required": [
+            "project"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_drum_kits",
+        "title": "List built-in drum kits",
+        "description": "Built-in synthesized drum kits and their drums, for add_kit_drum.",
+        "annotations": {
+          "readOnlyHint": true
+        },
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "add_kit_drum",
+        "title": "Put a built-in drum on a pad",
+        "description": "Put a built-in drum (see list_drum_kits) on a pad. It then behaves like any chop.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Project key (from list_projects) or exact project name."
+            },
+            "pad": {
+              "type": "string",
+              "pattern": "^[A-Da-d]([1-9]|1[0-6])$",
+              "description": "Pad id, e.g. A1 … D16."
+            },
+            "kit": {
+              "type": "string"
+            },
+            "drum": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "project",
+            "pad",
+            "kit",
+            "drum"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "add_audio_from_url",
+        "title": "Add a recording from a link",
+        "description": "Download an audio file (WAV, MP3, M4A, AIFF; up to 60 MB) from a public http(s) link and add it to the project as a recording. Returns its recording id for make_chops / find_chops.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Project key (from list_projects) or exact project name."
+            },
+            "url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "project",
+            "url"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "find_chops",
+        "title": "Find chop points",
+        "description": "Find chop points in a recording between start and end (seconds; default whole file). method: hits = transient detection (WAV recordings only; sensitivity 0–1), equal = `count` equal parts, beats = every `everyBeats` beat markers. apply: markers (set the recording's chop markers), pads (make chops onto pads from startPad/bank) or none (just return the times).",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Project key (from list_projects) or exact project name."
+            },
+            "recording": {
+              "type": "string"
+            },
+            "method": {
+              "type": "string",
+              "enum": [
+                "hits",
+                "equal",
+                "beats"
+              ]
+            },
+            "sensitivity": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 64
+            },
+            "everyBeats": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64
+            },
+            "start": {
+              "type": "number",
+              "minimum": 0
+            },
+            "end": {
+              "type": "number"
+            },
+            "apply": {
+              "type": "string",
+              "enum": [
+                "markers",
+                "pads",
+                "none"
+              ]
+            },
+            "startPad": {
+              "type": "string",
+              "pattern": "^[A-Da-d]([1-9]|1[0-6])$",
+              "description": "Pad id, e.g. A1 … D16."
+            },
+            "bank": {
+              "type": "string",
+              "enum": [
+                "A",
+                "B",
+                "C",
+                "D"
+              ]
+            }
+          },
+          "required": [
+            "project",
+            "recording",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "suggest_tempo",
+        "title": "Suggest a recording's tempo",
+        "description": "Estimate a recording's BPM from its hits (WAV recordings only). Could be half or double — check by ear.",
+        "annotations": {
+          "readOnlyHint": true
+        },
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Project key (from list_projects) or exact project name."
+            },
+            "recording": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "project",
+            "recording"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "make_chops",
+        "title": "Make chops onto pads",
+        "description": "Cut regions of a recording and put them on pads (replacing what those pads held). Give either `regions` [{start,end,name?}] in seconds, or `cuts` (cut points; chops run between them from `start` to `end`). Pads: `pads` list, or consecutive from `startPad` (default first pad of `bank`, default A1).",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Project key (from list_projects) or exact project name."
+            },
+            "recording": {
+              "type": "string"
+            },
+            "regions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "start": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "end": {
+                    "type": "number"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "start",
+                  "end"
+                ]
+              }
+            },
+            "cuts": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            },
+            "start": {
+              "type": "number",
+              "minimum": 0
+            },
+            "end": {
+              "type": "number"
+            },
+            "pads": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Da-d]([1-9]|1[0-6])$",
+                "description": "Pad id, e.g. A1 … D16."
+              }
+            },
+            "startPad": {
+              "type": "string",
+              "pattern": "^[A-Da-d]([1-9]|1[0-6])$",
+              "description": "Pad id, e.g. A1 … D16."
+            },
+            "bank": {
+              "type": "string",
+              "enum": [
+                "A",
+                "B",
+                "C",
+                "D"
+              ]
+            }
+          },
+          "required": [
+            "project",
+            "recording"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "set_chop_markers",
+        "title": "Set chop markers",
+        "description": "Replace a recording's chop markers (seconds). They show on the Chop tab for dragging and 'To bank'.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Project key (from list_projects) or exact project name."
+            },
+            "recording": {
+              "type": "string"
+            },
+            "times": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            }
+          },
+          "required": [
+            "project",
+            "recording",
+            "times"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "set_beat_markers",
+        "title": "Set beat markers",
+        "description": "Place beat markers on a recording from its own BPM and the time (seconds) of its first downbeat.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Project key (from list_projects) or exact project name."
+            },
+            "recording": {
+              "type": "string"
+            },
+            "bpm": {
+              "type": "number"
+            },
+            "firstBeat": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "project",
+            "recording",
+            "bpm",
+            "firstBeat"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "set_pad",
+        "title": "Change a pad",
+        "description": "Change a pad. fit: off | stretch (keeps pitch) | repitch (classic, pitch follows) to lengthBeats at the project BPM. volume 0–1, pan −1–1, pitch −24–24 st, velocity 1–127, plays whole|held|loop, chokeGroup 0–4 (0 = none), reverse, fadeInMs, fadeOutMs, chopName (rename its chop), empty=true clears the pad.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Project key (from list_projects) or exact project name."
+            },
+            "pad": {
+              "type": "string",
+              "pattern": "^[A-Da-d]([1-9]|1[0-6])$",
+              "description": "Pad id, e.g. A1 … D16."
+            },
+            "fit": {
+              "type": "string",
+              "enum": [
+                "off",
+                "stretch",
+                "repitch"
+              ]
+            },
+            "lengthBeats": {
+              "type": "number"
+            },
+            "volume": {
+              "type": "number"
+            },
+            "pan": {
+              "type": "number"
+            },
+            "pitch": {
+              "type": "number"
+            },
+            "velocity": {
+              "type": "number"
+            },
+            "plays": {
+              "type": "string",
+              "enum": [
+                "whole",
+                "held",
+                "loop"
+              ]
+            },
+            "chokeGroup": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "reverse": {
+              "type": "boolean"
+            },
+            "fadeInMs": {
+              "type": "number"
+            },
+            "fadeOutMs": {
+              "type": "number"
+            },
+            "chopName": {
+              "type": "string"
+            },
+            "empty": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "project",
+            "pad"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "add_pattern",
+        "title": "Add a pattern",
+        "description": "Add a pattern (1, 2 or 4 bars), empty or copied from another; it becomes the current pattern unless makeCurrent=false.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Project key (from list_projects) or exact project name."
+            },
+            "name": {
+              "type": "string"
+            },
+            "bars": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "copyFrom": {
+              "type": "string"
+            },
+            "makeCurrent": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "project"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "edit_pattern",
+        "title": "Edit a pattern",
+        "description": "Rename a pattern, set its length (1/2/4 bars; hits past the end are dropped), clear all its hits, or make it current.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Project key (from list_projects) or exact project name."
+            },
+            "pattern": {
+              "description": "Pattern id or name; omitted = the current pattern.",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "bars": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "clear": {
+              "type": "boolean"
+            },
+            "makeCurrent": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "project"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "delete_pattern",
+        "title": "Delete a pattern",
+        "description": "Delete a pattern (and remove it from the song).",
+        "annotations": {
+          "destructiveHint": true
+        },
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Project key (from list_projects) or exact project name."
+            },
+            "pattern": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "project",
+            "pattern"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "add_hits",
+        "title": "Add hits to a pattern",
+        "description": "Add hits to a pattern. step = 16th note from the pattern start (0-based; 0–15 per bar, beat n starts at step 4n). velocity 1–127 (default the pad's), offset −0.5–0.49 of a step for played feel (heard when quantize is off). A hit on the same pad+step is replaced.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Project key (from list_projects) or exact project name."
+            },
+            "pattern": {
+              "description": "Pattern id or name; omitted = the current pattern.",
+              "type": "string"
+            },
+            "hits": {
+              "minItems": 1,
+              "maxItems": 1024,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "pad": {
+                    "type": "string",
+                    "pattern": "^[A-Da-d]([1-9]|1[0-6])$",
+                    "description": "Pad id, e.g. A1 … D16."
+                  },
+                  "step": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "velocity": {
+                    "type": "number"
+                  },
+                  "offset": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "pad",
+                  "step"
+                ]
+              }
+            }
+          },
+          "required": [
+            "project",
+            "hits"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "remove_hits",
+        "title": "Remove hits",
+        "description": "Remove a pad's hits at the given steps, or all of that pad's hits in the pattern when steps is omitted.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Project key (from list_projects) or exact project name."
+            },
+            "pattern": {
+              "description": "Pattern id or name; omitted = the current pattern.",
+              "type": "string"
+            },
+            "pad": {
+              "type": "string",
+              "pattern": "^[A-Da-d]([1-9]|1[0-6])$",
+              "description": "Pad id, e.g. A1 … D16."
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            }
+          },
+          "required": [
+            "project",
+            "pad"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "set_lane",
+        "title": "Mute / solo a pad",
+        "description": "Mute or solo a pad's row in a pattern.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Project key (from list_projects) or exact project name."
+            },
+            "pattern": {
+              "description": "Pattern id or name; omitted = the current pattern.",
+              "type": "string"
+            },
+            "pad": {
+              "type": "string",
+              "pattern": "^[A-Da-d]([1-9]|1[0-6])$",
+              "description": "Pad id, e.g. A1 … D16."
+            },
+            "mute": {
+              "type": "boolean"
+            },
+            "solo": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "project",
+            "pad"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "set_song",
+        "title": "Set the song order",
+        "description": "Set the song: pattern ids or names in play order (repeat an id to repeat a pattern). Empty list clears it.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Project key (from list_projects) or exact project name."
+            },
+            "patterns": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "project",
+            "patterns"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "set_export",
+        "title": "Set export options",
+        "description": "Export settings used by Render in the app: mode stereo (mix only) | stems (mix + each pad), sampleRate 44100|48000, range pattern|song, patternRepeats 1–64, tailSec 0–10. Rendering the WAVs happens on the phone (Export → Render).",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Project key (from list_projects) or exact project name."
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "stereo",
+                "stems"
+              ]
+            },
+            "sampleRate": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "const": 44100
+                },
+                {
+                  "type": "number",
+                  "const": 48000
+                }
+              ]
+            },
+            "range": {
+              "type": "string",
+              "enum": [
+                "pattern",
+                "song"
+              ]
+            },
+            "patternRepeats": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "tailSec": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "project"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      }
+    ]
+  }
+}
