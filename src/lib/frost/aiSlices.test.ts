@@ -3,6 +3,9 @@ import { createEmptyProject } from "./demo";
 import { applyAiSlices, validateAiSlices } from "./aiSlices";
 
 describe("AI slice suggestions", () => {
+  it("keeps validated chops when the model omits the narrative", () => {
+    expect(validateAiSlices({ slices: [{ start: 0, end: 0.3, label: "Kick", pad: 1, reason: "Attack" }] }, 1, [1]).slices).toHaveLength(1);
+  });
   it("rejects times outside the audio and duplicate or unavailable pad assignments", () => {
     const slice = { start: 0, end: 0.5, label: "Kick", pad: 1, reason: "Clean onset" };
     const result = validateAiSlices({ summary: "Drums", slices: [slice, { ...slice, start: -1 }, { ...slice, end: 3, pad: 2 }, { ...slice, pad: 3 }, { ...slice, start: 0.6, end: 1 }] }, 2, [1, 2]);

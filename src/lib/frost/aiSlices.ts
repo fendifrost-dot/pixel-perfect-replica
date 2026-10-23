@@ -9,7 +9,9 @@ export const aiSliceOutput = z.object({
 export type AiSliceResult = z.infer<typeof aiSliceOutput>;
 
 export function validateAiSlices(raw: unknown, duration: number, availablePads: number[]): AiSliceResult {
-  const parsed = aiSliceOutput.parse(raw);
+  // A missing optional narrative must not discard otherwise valid audio chops.
+  const candidate = raw && typeof raw === "object" && !Array.isArray(raw) ? { summary: "", ...raw } : raw;
+  const parsed = aiSliceOutput.parse(candidate);
   const used = new Set<number>();
   const slices = parsed.slices.filter((s) => {
     if (!Number.isFinite(s.start) || !Number.isFinite(s.end) || s.start < 0 || s.end > duration + 0.001 || s.end - s.start < 0.015 || !availablePads.includes(s.pad) || used.has(s.pad)) return false;
