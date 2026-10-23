@@ -19,6 +19,7 @@ export type Database = {
           audio_paths: string[]
           created_at: string
           id: string
+          key: string | null
           name: string
           project: Json
           schema_version: number
@@ -28,6 +29,7 @@ export type Database = {
           audio_paths?: string[]
           created_at?: string
           id?: string
+          key?: string | null
           name?: string
           project?: Json
           schema_version?: number
@@ -37,6 +39,7 @@ export type Database = {
           audio_paths?: string[]
           created_at?: string
           id?: string
+          key?: string | null
           name?: string
           project?: Json
           schema_version?: number

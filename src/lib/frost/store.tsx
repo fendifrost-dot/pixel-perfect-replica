@@ -6,6 +6,8 @@ import type { LoopMode } from "./services";
 import { patternSections, songSections } from "./timing";
 import type { Project } from "./types";
 import { prepareStretches } from "./voice";
+import { pullAll, pushProject, syncEnabled } from "./sync";
+import { audioStore } from "./audioStore";
 
 export type View = "sample" | "pads" | "beat" | "export";
 /** "new" = a blank project nothing has been imported into yet (not saved). */
@@ -44,6 +46,10 @@ interface Ctx {
   bumpAudio: () => void;
   openProject: (key: string) => Promise<void>;
   newProject: () => void;
+  /** Pull/push with the cloud now (no-op when Cloud sync is off). */
+  syncNow: () => Promise<void>;
+  /** Bumped after each successful sync, so lists re-read the library. */
+  syncTick: number;
 }
 
 const FrostContext = createContext<Ctx | null>(null);
@@ -111,6 +117,46 @@ export function FrostProvider({ children }: { children: ReactNode }) {
     setCurrentStep(-1);
   }, []);
 
+  /** Recordings added by an assistant arrive without length/rate; fill them in once decoded. */
+  const fillSourceInfo = () => {
+    const p = ref.current;
+    const fixes = p.sources.filter((s) => s.origin === "imported" && !s.durationSec && audioStore.getBuffer(s.id));
+    if (!fixes.length) return;
+    const next = {
+      ...p,
+      sources: p.sources.map((s) => {
+        const b = fixes.includes(s) ? audioStore.getBuffer(s.id)! : null;
+        return b ? { ...s, durationSec: b.duration, sampleRate: b.sampleRate, channels: b.numberOfChannels } : s;
+      }),
+    };
+    ref.current = next;
+    setProject(next);
+  };
+
+  /** True for the one save that follows taking the cloud's copy (it is already in the library). */
+  const skipSave = useRef(false);
+
+  /** Take a newer copy of the open project (edited by an assistant) without leaving the current tab. */
+  const adopt = useCallback(async (p: Project) => {
+    if (transportService.isRunning()) transportService.stop();
+    setPlaying(false);
+    setCurrentStep(-1);
+    skipSave.current = true;
+    ref.current = p;
+    setProject(p);
+    setPast([]);
+    if (p.sources.some((s) => s.origin !== "demo" && !audioStore.hasBuffer(s.id))) {
+      setLoadingAudio(true);
+      try {
+        await importService.rehydrate(p);
+        fillSourceInfo();
+      } finally {
+        setLoadingAudio(false);
+        setAudioVersion((v) => v + 1);
+      }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const load = useCallback(
     async (p: Project, key: string) => {
       stopTransport();
@@ -125,7 +171,8 @@ export function FrostProvider({ children }: { children: ReactNode }) {
         setLoadingAudio(true);
         try {
           const missing = await importService.rehydrate(p);
-          if (missing.length) notify(`${missing.length} recording(s) weren't stored on this device — re-import to hear those pads.`);
+          if (missing.length) notify(`${missing.length} recording(s) aren't on this device${syncEnabled() ? " or in the cloud" : ""} — re-import to hear those pads.`);
+          fillSourceInfo();
         } finally {
           setLoadingAudio(false);
           setAudioVersion((v) => v + 1);
@@ -160,18 +207,63 @@ export function FrostProvider({ children }: { children: ReactNode }) {
   // Autosave (debounced). The demo is never saved.
   useEffect(() => {
     if (project.isDemo) return;
+    if (skipSave.current) {
+      skipSave.current = false;
+      return;
+    }
     setSaveState("saving");
     const t = setTimeout(() => {
       library
         .save(projectKey, project)
-        .then(() => {
+        .then(async () => {
           currentKey.set(projectKey);
           setSaveState("saved");
+          if (!syncEnabled()) return;
+          const r = await pushProject(projectKey);
+          if (!r.ok && "conflict" in r && projectKey === currentKey.get()) {
+            await adopt(r.conflict);
+            notify("This project was changed by an assistant — showing the latest version.");
+          }
         })
         .catch(() => setSaveState("error"));
     }, 700);
     return () => clearTimeout(t);
-  }, [project, projectKey]);
+  }, [project, projectKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Pull assistant edits: on launch, when the app comes back to the front, and every 20 s while open.
+  const keyRef = useRef(projectKey);
+  keyRef.current = projectKey;
+  const syncNow = useCallback(async () => {
+    if (!syncEnabled() || document.visibilityState !== "visible") return;
+    try {
+      const { changed, removed } = await pullAll();
+      const k = keyRef.current;
+      if (removed.includes(k)) {
+        notify("This project was deleted from the cloud.");
+        await load({ ...createEmptyProject(), isDemo: true }, newKey());
+      } else if (changed.includes(k) && !transportService.isRunning()) {
+        const p = await library.load(k);
+        if (p) {
+          await adopt(p);
+          notify("Updated with changes from an assistant.");
+        }
+      }
+      setSyncTick((n) => n + 1);
+    } catch {
+      /* offline or wrong key: shown in Projects → Cloud sync */
+    }
+  }, [adopt, notify]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [syncTick, setSyncTick] = useState(0);
+  useEffect(() => {
+    void syncNow();
+    const onVis = () => void syncNow();
+    document.addEventListener("visibilitychange", onVis);
+    const t = setInterval(() => void syncNow(), 20000);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      clearInterval(t);
+    };
+  }, [syncNow]);
 
   // Pre-compute pitch-preserving stretches off the tap path whenever pads / tempo change.
   useEffect(() => {
@@ -235,7 +327,7 @@ export function FrostProvider({ children }: { children: ReactNode }) {
       value={{
         project, commit, replace, undo, canUndo: past.length > 0, view, setView, playing, togglePlay, loopMode, setLoopMode,
         recording, setRecording, metronome, setMetronome, currentStep, notice, notify, projectKey, saveState, loadingAudio,
-        audioVersion, bumpAudio: () => setAudioVersion((v) => v + 1), openProject, newProject,
+        audioVersion, bumpAudio: () => setAudioVersion((v) => v + 1), openProject, newProject, syncNow, syncTick,
       }}
     >
       {children}

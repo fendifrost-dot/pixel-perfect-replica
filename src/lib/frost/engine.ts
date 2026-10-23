@@ -5,6 +5,7 @@
 import { audioStore, computePeaks } from "./audioStore";
 import { detectOnsets, firstAudible, suggestTempo } from "./analysis";
 import { library } from "./persist";
+import { fetchAudioToDevice } from "./sync";
 import { findDrum, kitSourceId, parseKitSourceId } from "./kits";
 import type {
   AnalysisService,
@@ -94,12 +95,14 @@ export const importService: AudioImportService = {
       }
       if (s.origin !== "imported") continue;
       try {
-        const a = s.persistence === "device" ? await library.getAudio(s.id) : undefined;
-        if (!a) {
+        const local = s.persistence === "device" ? await library.getAudio(s.id) : undefined;
+        // Not on this device (e.g. added by an assistant, or another phone): fetch it from the cloud.
+        const bytes = local?.bytes ?? (await fetchAudioToDevice(s.id, s.name));
+        if (!bytes) {
           missing.push(s.id);
           continue;
         }
-        const b = await decode(a.bytes);
+        const b = await decode(bytes);
         audioStore.setBuffer(s.id, b);
         audioStore.setPeaks(s.id, computePeaks(b), false);
       } catch {

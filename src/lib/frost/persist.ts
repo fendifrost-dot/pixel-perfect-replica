@@ -1,7 +1,7 @@
 /**
  * On-device project library in IndexedDB: project JSON plus the ORIGINAL imported file bytes,
  * so reopening re-decodes the same audio and every chop still points at the same samples.
- * Nothing leaves the device.
+ * With Cloud sync on (cloud.ts / sync.ts), entries also remember which cloud version they match.
  */
 import { SCHEMA_VERSION, type Project } from "./types";
 
@@ -13,6 +13,10 @@ export interface LibraryEntry {
   name: string;
   savedAt: number;
   project: Project;
+  /** Cloud version (server updated_at) this copy matches; absent = never synced. */
+  cloudUpdatedAt?: string | undefined;
+  /** Local changes not yet accepted by the cloud. */
+  dirty?: boolean | undefined;
 }
 
 export interface StoredAudio {
@@ -91,9 +95,30 @@ export const currentKey = {
 };
 
 export const library = {
-  async save(key: string, project: Project) {
-    const entry: LibraryEntry = { key, name: project.name, savedAt: Date.now(), project };
+  /** Save a project. Local edits mark it dirty (to push); `sync` records a version the cloud holds. */
+  async save(key: string, project: Project, sync?: { cloudUpdatedAt: string }) {
+    const prev = await library.entry(key);
+    const entry: LibraryEntry = {
+      key,
+      name: project.name,
+      savedAt: Date.now(),
+      project,
+      cloudUpdatedAt: sync ? sync.cloudUpdatedAt : prev?.cloudUpdatedAt,
+      dirty: !sync,
+    };
     await tx("projects", "readwrite", (s) => s.put(entry));
+  },
+  async entry(key: string): Promise<LibraryEntry | undefined> {
+    return tx<LibraryEntry>("projects", "readonly", (s) => s.get(key));
+  },
+  async entries(): Promise<LibraryEntry[]> {
+    return (await tx<LibraryEntry[]>("projects", "readonly", (s) => s.getAll())) ?? [];
+  },
+  /** Record that the cloud accepted this exact copy. */
+  async markSynced(key: string, cloudUpdatedAt: string, savedAt: number) {
+    const e = await library.entry(key);
+    if (!e || e.savedAt !== savedAt) return; // edited again meanwhile: stays dirty
+    await tx("projects", "readwrite", (s) => s.put({ ...e, cloudUpdatedAt, dirty: false }));
   },
   async load(key: string): Promise<Project | null> {
     const e = await tx<LibraryEntry>("projects", "readonly", (s) => s.get(key));

@@ -15,7 +15,8 @@
 - Unimplemented audio features must render an honest Unavailable state, never fake output.
 - Project data is versioned via SCHEMA_VERSION in types.ts — bump on breaking changes.
 - Built-in drums are synthesized in src/lib/frost/kits.ts (seeded, deterministic — never ship audio assets for them). A drum on a pad is a `kit` source + one slice; it is regenerated on reopen, so the project stays small and the pad behaves like any chop.
-- Cloud projects are a separate explicitly shared catalog; preserve device-only IndexedDB storage and never auto-upload its data, because sharing must be intentional.
-- Remote MCP uses the SDK-generated TanStack endpoint and lazy public-key client under src/lib/mcp; keep tools read-only and subject to anonymous database policies, because public access must not escalate privileges.
-- Audio storage stays private without anonymous object policies while workspace policy blocks public buckets; do not simulate public buckets with signed links or policy workarounds.
 - AI slicing sends only an explicitly consented selection through an audio service to a same-origin server endpoint; use a discovered audio-capable Gateway model, keep prompts and keys server-only, validate suggestions, and apply reviewed assignments as one undoable edit without overwriting occupied pads.
+- Cloud = private, key-protected sync store for the owner's projects (table `projects`, private bucket `audio`). Only the app's server touches it (service role); anon/authenticated have no grants. Every server entry point (`/mcp`, `/api/cloud`) checks the FROST_MCP_KEY secret first (src/lib/cloud/key.server.ts) — never add a route that reads or writes cloud data without it.
+- Phone sync (src/lib/frost/sync.ts) runs only after the owner enters the key in Projects → Cloud sync. Device storage stays the working copy; the cloud wins conflicts so assistant edits are never silently overwritten.
+- MCP (src/lib/mcp) has full read/write tools built on the pure edits in src/lib/frost/ops.ts. The route file src/routes/mcp.ts is hand-owned; the mcp-js Vite plugin is deliberately not used because it would regenerate an unguarded /mcp route.
+- Audio stays in the private bucket and moves only through short-lived signed URLs issued to key holders.

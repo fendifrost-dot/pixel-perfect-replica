@@ -11,8 +11,9 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as McpRouteImport } from './routes/mcp'
-import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
 import { Route as ApiAiSlicesRouteImport } from './routes/api.ai-slices'
+import { Route as ApiCloudRouteImport } from './routes/api.cloud'
+import { Route as ApiCloudDevAudioRouteImport } from './routes/api.cloud-dev-audio'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -24,56 +25,65 @@ const McpRoute = McpRouteImport.update({
   path: '/mcp',
   getParentRoute: () => rootRouteImport,
 } as any)
-const Char91DotwellKnownChar93OauthProtectedResourceRoute =
-  Char91DotwellKnownChar93OauthProtectedResourceRouteImport.update({
-    id: '/.well-known/oauth-protected-resource',
-    path: '/.well-known/oauth-protected-resource',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const ApiAiSlicesRoute = ApiAiSlicesRouteImport.update({
   id: '/api/ai-slices',
   path: '/api/ai-slices',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCloudRoute = ApiCloudRouteImport.update({
+  id: '/api/cloud',
+  path: '/api/cloud',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCloudDevAudioRoute = ApiCloudDevAudioRouteImport.update({
+  id: '/api/cloud-dev-audio',
+  path: '/api/cloud-dev-audio',
   getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/mcp': typeof McpRoute
-  '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/api/ai-slices': typeof ApiAiSlicesRoute
+  '/api/cloud': typeof ApiCloudRoute
+  '/api/cloud-dev-audio': typeof ApiCloudDevAudioRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/mcp': typeof McpRoute
-  '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/api/ai-slices': typeof ApiAiSlicesRoute
+  '/api/cloud': typeof ApiCloudRoute
+  '/api/cloud-dev-audio': typeof ApiCloudDevAudioRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/mcp': typeof McpRoute
-  '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/api/ai-slices': typeof ApiAiSlicesRoute
+  '/api/cloud': typeof ApiCloudRoute
+  '/api/cloud-dev-audio': typeof ApiCloudDevAudioRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/mcp' | '/.well-known/oauth-protected-resource' | '/api/ai-slices'
+    '/' | '/mcp' | '/api/ai-slices' | '/api/cloud' | '/api/cloud-dev-audio'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/mcp' | '/.well-known/oauth-protected-resource' | '/api/ai-slices'
+  to: '/' | '/mcp' | '/api/ai-slices' | '/api/cloud' | '/api/cloud-dev-audio'
   id:
     | '__root__'
     | '/'
     | '/mcp'
-    | '/.well-known/oauth-protected-resource'
     | '/api/ai-slices'
+    | '/api/cloud'
+    | '/api/cloud-dev-audio'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   McpRoute: typeof McpRoute
-  Char91DotwellKnownChar93OauthProtectedResourceRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   ApiAiSlicesRoute: typeof ApiAiSlicesRoute
+  ApiCloudRoute: typeof ApiCloudRoute
+  ApiCloudDevAudioRoute: typeof ApiCloudDevAudioRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -92,18 +102,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof McpRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/.well-known/oauth-protected-resource': {
-      id: '/.well-known/oauth-protected-resource'
-      path: '/.well-known/oauth-protected-resource'
-      fullPath: '/.well-known/oauth-protected-resource'
-      preLoaderRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/ai-slices': {
       id: '/api/ai-slices'
       path: '/api/ai-slices'
       fullPath: '/api/ai-slices'
       preLoaderRoute: typeof ApiAiSlicesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cloud': {
+      id: '/api/cloud'
+      path: '/api/cloud'
+      fullPath: '/api/cloud'
+      preLoaderRoute: typeof ApiCloudRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cloud-dev-audio': {
+      id: '/api/cloud-dev-audio'
+      path: '/api/cloud-dev-audio'
+      fullPath: '/api/cloud-dev-audio'
+      preLoaderRoute: typeof ApiCloudDevAudioRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -112,9 +129,9 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   McpRoute: McpRoute,
-  Char91DotwellKnownChar93OauthProtectedResourceRoute:
-    Char91DotwellKnownChar93OauthProtectedResourceRoute,
   ApiAiSlicesRoute: ApiAiSlicesRoute,
+  ApiCloudRoute: ApiCloudRoute,
+  ApiCloudDevAudioRoute: ApiCloudDevAudioRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
