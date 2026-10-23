@@ -40,6 +40,28 @@ export function ac(): AudioContext {
 }
 const uid = () => Math.random().toString(36).slice(2, 10);
 
+/**
+ * Make sure audio can actually come out. iOS can leave a page's AudioContext "suspended" or
+ * "interrupted" after switching apps, a call or the screen locking, and sometimes resume() never
+ * brings it back — sounds then vanish silently. If resuming doesn't work quickly, replace the
+ * context (decoded AudioBuffers are independent of it, so nothing has to be reloaded).
+ */
+async function wake(): Promise<boolean> {
+  const c = ac();
+  if (c.state === "running") return true;
+  const timeout = new Promise<void>((r) => setTimeout(r, 400));
+  await Promise.race([c.resume().catch(() => undefined), timeout]);
+  if (ac().state === "running") return true;
+  try {
+    void c.close();
+  } catch {
+    /* already closed */
+  }
+  ctx = null;
+  await Promise.race([ac().resume().catch(() => undefined), new Promise<void>((r) => setTimeout(r, 400))]);
+  return ac().state === "running";
+}
+
 const monoCache = new Map<AudioBuffer, Float32Array>();
 export function monoOf(b: AudioBuffer): Float32Array {
   let m = monoCache.get(b);
@@ -188,8 +210,9 @@ function trigger(pad: Pad, slice: Slice | undefined, velocity: number, bpm: numb
 
 export const playbackService: PlaybackService = {
   async resume() {
-    if (ac().state !== "running") await ac().resume();
+    return wake();
   },
+  isReady: () => ac().state === "running",
   now: () => ac().currentTime,
   heardTime() {
     const c = ac();

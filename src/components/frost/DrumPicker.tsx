@@ -25,8 +25,8 @@ export function DrumPicker({ padId, onClose }: { padId?: string | undefined; onC
 
   useEffect(() => () => playbackService.stopAudition(), []);
 
-  const preview = (drumId: string) => {
-    void playbackService.resume();
+  const preview = async (drumId: string) => {
+    if (!playbackService.isReady()) await playbackService.resume();
     const d = kitService.loadDrum(kitId, drumId);
     if (!d) return;
     // Audition through a throwaway pad so it sounds exactly as it will on a pad.
@@ -61,7 +61,7 @@ export function DrumPicker({ padId, onClose }: { padId?: string | undefined; onC
             const used = inUse.has(kitSourceId(kit.id, d.id));
             return (
               <li key={d.id} className="flex items-center gap-2 rounded-md bg-surface px-2 py-1.5">
-                <button className="min-w-0 flex-1 py-1 text-left" onClick={() => preview(d.id)}>
+                <button className="min-w-0 flex-1 py-1 text-left" onClick={() => void preview(d.id)}>
                   <div className="text-sm font-semibold">{d.name}</div>
                   {used && <div className="text-[10px] text-muted-foreground">On a pad</div>}
                 </button>

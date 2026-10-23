@@ -119,7 +119,7 @@ export function SampleView() {
   const range: [number, number] = useRange && sel ? [sel.start, sel.end] : [0, dur];
   const inRange = markers.filter((m) => m > range[0] && m < range[1]);
   const clearSelection = () => {
-    if (auditioning) toggleAudition();
+    if (auditioning) void toggleAudition();
     commit((p) => ({ ...p, selection: null }));
   };
   /** Remove chop markers: those inside the selection when there is one, otherwise all of them. */
@@ -129,7 +129,7 @@ export function SampleView() {
     notify(all || !useRange ? "All chop markers cleared." : `${markers.length - keep.length} marker${markers.length - keep.length === 1 ? "" : "s"} cleared from the selection.`);
   };
 
-  const toggleAudition = () => {
+  const toggleAudition = async () => {
     clearTimeout(auditionTimer.current);
     if (auditioning) {
       playbackService.stopAudition();
@@ -139,7 +139,7 @@ export function SampleView() {
     // No selection: play from the left edge of what's on screen to the end.
     const a = sel ? sel.start : Math.max(0, Math.min(v0, dur - 0.05));
     const b = sel ? sel.end : dur;
-    void playbackService.resume();
+    if (!playbackService.isReady() && !(await playbackService.resume())) return notify("Audio is blocked on this phone. Check the volume, then tap Listen again.");
     if (!playbackService.audition(src.id, a, b)) return notify("This recording's audio isn't loaded on this phone yet. Wait a moment, or re-import it.");
     setAuditioning(true);
     auditionTimer.current = setTimeout(() => setAuditioning(false), (b - a) * 1000);
@@ -286,7 +286,7 @@ export function SampleView() {
         </div>
 
         <div className={cn("grid gap-2", grid ? "grid-cols-3" : "grid-cols-2")}>
-          <button className={cn("btn", auditioning && "btn-on")} onClick={toggleAudition}>
+          <button className={cn("btn", auditioning && "btn-on")} onClick={() => void toggleAudition()}>
             {auditioning ? <Square className="size-4" /> : <Headphones className="size-4" />} {auditioning ? "Stop" : "Listen"}
           </button>
           {grid && (
