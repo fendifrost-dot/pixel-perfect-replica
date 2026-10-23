@@ -106,7 +106,7 @@ export function SampleView() {
           <button className="btn btn-primary mx-auto h-14 w-full max-w-xs text-base" onClick={() => fileRef.current?.click()} disabled={busy || loadingAudio}>
             <Upload className="size-5" /> {busy ? "Decoding…" : loadingAudio ? "Loading saved audio…" : "Import audio"}
           </button>
-          <p className="text-[11px] text-muted-foreground">Everything stays on this phone.</p>
+          <p className="text-[11px] text-muted-foreground">Stays on this phone unless you turn on Cloud sync (tap the project name).</p>
         </section>
       </div>
     );
