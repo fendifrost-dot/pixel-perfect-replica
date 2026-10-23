@@ -36,7 +36,7 @@ export function Waveform(props: Props) {
   const pinch = useRef<{ d0: number; c0: number; s0: number; e0: number } | null>(null);
   const drag = useRef<
     | { kind: "sel"; mode: "start" | "end" | "new"; anchor: number }
-    | { kind: "marker"; index: number; moved: boolean; created: boolean }
+    | { kind: "marker"; index: number; moved: boolean; created: boolean; x0: number }
     | { kind: "beat"; index: number }
     | null
   >(null);
@@ -99,7 +99,7 @@ export function Waveform(props: Props) {
       for (const m of markers) {
         if (m < viewStart || m > viewEnd) continue;
         g.fillRect(tx(m) - 1, 0, 2, h);
-        if (mode === "chop") g.fillRect(tx(m) - 7, h - 14, 14, 14);
+        g.fillRect(tx(m) - 7, h - 14, 14, 14); // handle: tap to delete, drag to move
       }
       if (selection && mode === "select") {
         g.fillStyle = amber;
@@ -149,21 +149,26 @@ export function Waveform(props: Props) {
         if (pointers.current.size > 2) return;
         const p = P.current;
         const t = timeAt(e.clientX);
+        // A chop marker under the finger can be tapped away (or dragged) in any mode.
+        const onMarker = nearest(p.markers, t);
+        const grab = (index: number, created = false) => (drag.current = { kind: "marker", index, moved: false, created, x0: e.clientX });
         if (p.mode === "chop") {
-          const i = nearest(p.markers, t);
-          if (i >= 0) drag.current = { kind: "marker", index: i, moved: false, created: false };
+          if (onMarker >= 0) grab(onMarker);
           else {
             const next = [...p.markers, t].sort((a, b) => a - b);
             p.onMarkers(next, false);
-            drag.current = { kind: "marker", index: next.indexOf(t), moved: false, created: true };
+            grab(next.indexOf(t), true);
           }
         } else if (p.mode === "beats") {
           const i = nearest(p.beats, t);
-          drag.current = i >= 0 ? { kind: "beat", index: i } : null;
+          if (i >= 0) drag.current = { kind: "beat", index: i };
+          else if (onMarker >= 0) grab(onMarker);
+          else drag.current = null;
         } else {
           const s = p.selection;
           if (s && Math.abs(t - s.start) < tol()) drag.current = { kind: "sel", mode: "start", anchor: s.end };
           else if (s && Math.abs(t - s.end) < tol()) drag.current = { kind: "sel", mode: "end", anchor: s.start };
+          else if (onMarker >= 0) grab(onMarker);
           else drag.current = { kind: "sel", mode: "new", anchor: t };
         }
       }}
@@ -190,6 +195,8 @@ export function Waveform(props: Props) {
           const a = Math.min(t, d.anchor), b = Math.max(t, d.anchor);
           if (b - a > 0.002) p.onSelect(a, b, false);
         } else if (d.kind === "marker") {
+          // a finger tap wobbles a few pixels: only a real drag moves the marker
+          if (!d.moved && Math.abs(e.clientX - d.x0) < 10) return;
           const next = [...p.markers];
           next[d.index] = t;
           d.moved = true;

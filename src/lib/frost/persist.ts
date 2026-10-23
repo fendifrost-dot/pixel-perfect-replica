@@ -17,6 +17,8 @@ export interface LibraryEntry {
   cloudUpdatedAt?: string | undefined;
   /** Local changes not yet accepted by the cloud. */
   dirty?: boolean | undefined;
+  /** The cloud copy this entry was last in agreement with (base for merging). */
+  base?: Project | undefined;
 }
 
 export interface StoredAudio {
@@ -62,6 +64,19 @@ function tx<T>(
   );
 }
 
+/** Turn web-encoded names ("My%20Song") back into text; leaves normal names alone. */
+export function cleanName(name: string): string {
+  let n = name;
+  for (let i = 0; i < 2 && /%[0-9A-Fa-f]{2}/.test(n); i++) {
+    try {
+      n = decodeURIComponent(n);
+    } catch {
+      break;
+    }
+  }
+  return n.trim();
+}
+
 export function migrateProject(raw: unknown): Project {
   const p = raw as Record<string, unknown>;
   if (!p || typeof p !== "object") throw new Error("Not a Frost project");
@@ -70,6 +85,8 @@ export function migrateProject(raw: unknown): Project {
   const proj = p as unknown as Project;
   return {
     ...proj,
+    name: cleanName(proj.name ?? ""),
+    sources: (proj.sources ?? []).map((s) => ({ ...s, name: cleanName(s.name) })),
     schemaVersion: SCHEMA_VERSION,
     beatGrids: proj.beatGrids ?? {},
     export: { ...proj.export, patternRepeats: proj.export?.patternRepeats ?? 4 },
@@ -96,7 +113,7 @@ export const currentKey = {
 
 export const library = {
   /** Save a project. Local edits mark it dirty (to push); `sync` records a version the cloud holds. */
-  async save(key: string, project: Project, sync?: { cloudUpdatedAt: string }) {
+  async save(key: string, project: Project, sync?: { cloudUpdatedAt: string; base?: Project; dirty?: boolean }) {
     const prev = await library.entry(key);
     const entry: LibraryEntry = {
       key,
@@ -104,7 +121,8 @@ export const library = {
       savedAt: Date.now(),
       project,
       cloudUpdatedAt: sync ? sync.cloudUpdatedAt : prev?.cloudUpdatedAt,
-      dirty: !sync,
+      base: sync ? (sync.base ?? project) : prev?.base,
+      dirty: sync ? !!sync.dirty : true,
     };
     await tx("projects", "readwrite", (s) => s.put(entry));
   },
@@ -114,11 +132,15 @@ export const library = {
   async entries(): Promise<LibraryEntry[]> {
     return (await tx<LibraryEntry[]>("projects", "readonly", (s) => s.getAll())) ?? [];
   },
-  /** Record that the cloud accepted this exact copy. */
-  async markSynced(key: string, cloudUpdatedAt: string, savedAt: number) {
+  /**
+   * Record that the cloud now holds `pushed` as version `cloudUpdatedAt`. If the phone saved again
+   * while the push was in flight, the entry stays dirty — but now based on the new version, so the
+   * next push is not mistaken for a conflict.
+   */
+  async markSynced(key: string, cloudUpdatedAt: string, savedAt: number, pushed: Project) {
     const e = await library.entry(key);
-    if (!e || e.savedAt !== savedAt) return; // edited again meanwhile: stays dirty
-    await tx("projects", "readwrite", (s) => s.put({ ...e, cloudUpdatedAt, dirty: false }));
+    if (!e) return;
+    await tx("projects", "readwrite", (s) => s.put({ ...e, cloudUpdatedAt, base: pushed, dirty: e.savedAt !== savedAt }));
   },
   async load(key: string): Promise<Project | null> {
     const e = await tx<LibraryEntry>("projects", "readonly", (s) => s.get(key));
