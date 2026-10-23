@@ -85,23 +85,47 @@ function unlockInGesture() {
 }
 
 if (typeof window !== "undefined") {
+  // iOS can kill a page's audio output (e.g. under memory pressure) while the context still says
+  // "running": its clock then stops. Watch the clock; if it stalls, the next tap swaps in a new context.
+  let lastTime = -1;
+  let stalls = 0;
+  setInterval(() => {
+    if (!ctx || document.visibilityState !== "visible") return;
+    if (ctx.state !== "running") {
+      lastTime = -1;
+      return;
+    }
+    stalls = ctx.currentTime === lastTime ? stalls + 1 : 0;
+    lastTime = ctx.currentTime;
+    if (stalls >= 2) {
+      stuck = true;
+      stalls = 0;
+    }
+  }, 700);
   for (const ev of ["pointerdown", "touchend", "keydown"]) window.addEventListener(ev, unlockInGesture, { capture: true, passive: true });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && ctx && ctx.state !== "running") stuck = true;
   });
 }
 
-const monoCache = new Map<AudioBuffer, Float32Array>();
+/**
+ * Mono mix of a recording for analysis. Kept for a few seconds only (analysis calls come in bursts):
+ * for a long song this is >100 MB, and holding it pushes iOS into killing the page's audio.
+ */
+let monoCache: { b: AudioBuffer; m: Float32Array } | null = null;
+let monoTimer: ReturnType<typeof setTimeout> | undefined;
 export function monoOf(b: AudioBuffer): Float32Array {
-  let m = monoCache.get(b);
+  let m = monoCache?.b === b ? monoCache.m : null;
   if (!m) {
     m = new Float32Array(b.length);
     for (let c = 0; c < b.numberOfChannels; c++) {
       const d = b.getChannelData(c);
       for (let i = 0; i < d.length; i++) m[i] += d[i] / b.numberOfChannels;
     }
-    monoCache.set(b, m);
+    monoCache = { b, m };
   }
+  clearTimeout(monoTimer);
+  monoTimer = setTimeout(() => (monoCache = null), 5000);
   return m;
 }
 
@@ -333,7 +357,7 @@ export const transportService: TransportService = {
   },
   start(getProject, onStep, metronome, mode) {
     if (ts) return;
-    const c = ac();
+    let c = ac();
     const p0 = getProject();
     const s: TState = {
       timer: 0 as unknown as ReturnType<typeof setInterval>,
@@ -346,6 +370,12 @@ export const transportService: TransportService = {
     };
     const tick = () => {
       const p = getProject();
+      if (ac() !== c) {
+        // the audio context was replaced (iOS recovery): carry on from where scheduling had reached
+        c = ac();
+        s.anchorPos = s.scheduledTo;
+        s.anchorTime = c.currentTime + 0.05;
+      }
       const now = c.currentTime;
       if (p.bpm !== s.bpm) {
         // re-anchor so a tempo change continues from the current position
