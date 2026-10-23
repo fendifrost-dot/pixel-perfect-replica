@@ -21,7 +21,9 @@ export interface PadSource {
   playDuration: number;
 }
 
-const reversed = new Map<AudioBuffer, AudioBuffer>();
+// WeakMap: a reversed copy goes away with the buffer it was made from (no leak as stretches change).
+const reversed = new WeakMap<AudioBuffer, AudioBuffer>();
+const reversedRegions = new Map<string, AudioBuffer>();
 const stretched = new Map<string, AudioBuffer>();
 
 function copyRegion(b: AudioBuffer, start: number, end: number): Float32Array[] {
@@ -102,11 +104,20 @@ export function padSource(pad: Pad, slice: Slice | undefined, bpm: number): PadS
       playDuration: plan.duration,
     };
   }
-  const buf = pad.reverse ? reverseOf(base) : base;
-  const offset = pad.reverse ? base.duration - slice.end : slice.start;
+  if (pad.reverse) {
+    // Reverse just the chop, never the whole recording (an 11-minute song reversed is another ~250 MB).
+    const key = `${slice.sourceId}|${slice.start}|${slice.end}`;
+    let r = reversedRegions.get(key);
+    if (!r) {
+      r = toBuffer(copyRegion(base, slice.start, slice.end).map((c) => c.reverse()), base.sampleRate);
+      if (reversedRegions.size > 64) reversedRegions.clear();
+      reversedRegions.set(key, r);
+    }
+    return { buffer: r, offset: 0, duration: r.duration, rate: plan.rate, playDuration: plan.duration };
+  }
   return {
-    buffer: buf,
-    offset,
+    buffer: base,
+    offset: slice.start,
     duration: slice.end - slice.start,
     rate: plan.rate,
     playDuration: plan.duration,
