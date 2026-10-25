@@ -14,11 +14,12 @@ export function Segmented<T extends string | number>({
   className?: string;
 }) {
   return (
-    <div className={cn("flex gap-1 rounded-md bg-background p-1", className)}>
+    <div className={cn("segmented", className)}>
       {options.map((o) => (
         <button
           key={String(o.value)}
-          className={cn("btn min-h-9 flex-1 px-1 text-xs", value === o.value && "btn-on")}
+          className="segmented-option"
+          aria-pressed={value === o.value}
           onClick={() => onChange(o.value)}
         >
           {o.label}
@@ -51,7 +52,15 @@ export function Slider({
         <span className="eyebrow">{label}</span>
         <span className="font-mono text-xs">{display}</span>
       </div>
-      <input type="range" className="h-8 w-full" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} />
+      <input
+        type="range"
+        className="h-8 w-full"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
     </label>
   );
 }

@@ -1,4 +1,4 @@
-import { AudioWaveform, Grid3x3, Rows3, Share } from "lucide-react";
+import { AudioWaveform, Grid2X2, Rows3, ArrowUpRight } from "lucide-react";
 import { useFrost, type View } from "@/lib/frost/store";
 import { TopBar } from "./TopBar";
 import { SampleView } from "./SampleView";
@@ -7,46 +7,88 @@ import { BeatView } from "./BeatView";
 import { ExportView } from "./ExportView";
 import { cn } from "@/lib/utils";
 
-const TABS: { id: View; label: string; Icon: typeof Grid3x3 }[] = [
-  { id: "sample", label: "Chop", Icon: AudioWaveform },
-  { id: "pads", label: "Pads", Icon: Grid3x3 },
-  { id: "beat", label: "Beat", Icon: Rows3 },
-  { id: "export", label: "Export", Icon: Share },
+const TABS: { id: View; label: string; detail: string; Icon: typeof Grid2X2 }[] = [
+  { id: "sample", label: "Chop", detail: "Find the moment", Icon: AudioWaveform },
+  { id: "pads", label: "Pads", detail: "Play your sound", Icon: Grid2X2 },
+  { id: "beat", label: "Beat", detail: "Build the groove", Icon: Rows3 },
+  { id: "export", label: "Export", detail: "Take it to the studio", Icon: ArrowUpRight },
 ];
-
+const TITLES: Record<View, { title: string; description: string }> = {
+  sample: {
+    title: "The sample lab.",
+    description: "A little piece of something. Something entirely new.",
+  },
+  pads: { title: "Make it your own.", description: "Sixteen pads. One good idea is all it takes." },
+  beat: { title: "Find your pocket.", description: "Lay down a pattern. Give it room to move." },
+  export: {
+    title: "Ready for the next session.",
+    description: "Your mix and individual tracks, ready for your DAW.",
+  },
+};
 export function Workspace() {
-  const { view, setView, notice } = useFrost();
+  const { view, setView, notice, project } = useFrost();
+  const tab = TABS.findIndex((t) => t.id === view);
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col">
+    <div className="studio-shell">
       <TopBar />
-      <main className="flex-1 px-3 pb-28 pt-3">
-        {view === "sample" && <SampleView />}
-        {view === "pads" && <PadsView />}
-        {view === "beat" && <BeatView />}
-        {view === "export" && <ExportView />}
-      </main>
-      {notice && (
-        <div className="fixed inset-x-3 bottom-24 z-30 mx-auto max-w-md rounded-md bg-popover px-4 py-3 text-sm shadow-lg ring-1 ring-border">
-          {notice}
-        </div>
-      )}
-      <nav className="safe-bottom fixed inset-x-0 bottom-0 z-20 border-t bg-background/95 backdrop-blur">
-        <div className="mx-auto grid max-w-5xl grid-cols-4">
-          {TABS.map(({ id, label, Icon }) => (
+      <div className="studio-body">
+        <nav className="studio-nav safe-bottom" aria-label="Sampler workspace">
+          <div className="nav-caption eyebrow">Your workspace</div>
+          {TABS.map(({ id, label, detail, Icon }, i) => (
             <button
               key={id}
               onClick={() => setView(id)}
-              className={cn(
-                "flex min-h-14 flex-col items-center justify-center gap-0.5 text-[11px] font-semibold",
-                view === id ? "text-primary" : "text-muted-foreground",
-              )}
+              aria-current={view === id ? "page" : undefined}
+              className={cn("studio-nav-item", view === id && "is-current")}
             >
-              <Icon className="size-5" />
-              {label}
+              <Icon className="size-5 shrink-0" aria-hidden="true" />
+              <span className="nav-copy">
+                <strong>{label}</strong>
+                <small>{detail}</small>
+              </span>
+              <span className="nav-number" aria-hidden="true">
+                0{i + 1}
+              </span>
             </button>
           ))}
+          <div className="rail-note">
+            <span className="frost-symbol" aria-hidden="true">
+              ✳
+            </span>
+            <p>
+              Small studio.
+              <br />
+              Endless possibilities.
+            </p>
+            <span className="eyebrow">Frost Sampler</span>
+          </div>
+        </nav>
+        <main className="studio-main" id="workspace">
+          <div className="workspace-heading">
+            <div>
+              <div className="eyebrow section-index">
+                0{tab + 1} / {TABS[tab].label}
+              </div>
+              <h1>{TITLES[view].title}</h1>
+              <p>{TITLES[view].description}</p>
+            </div>
+            <span className="session-tag">
+              {project.isDemo
+                ? "NEW SESSION"
+                : `${project.pads.filter((p) => p.sliceId).length} SOUNDS`}
+            </span>
+          </div>
+          {view === "sample" && <SampleView />}
+          {view === "pads" && <PadsView />}
+          {view === "beat" && <BeatView />}
+          {view === "export" && <ExportView />}
+        </main>
+      </div>
+      {notice && (
+        <div role="status" className="studio-notice">
+          {notice}
         </div>
-      </nav>
+      )}
     </div>
   );
 }
