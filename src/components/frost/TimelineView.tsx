@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Maximize2, Minimize2, Minus, Play, Plus, Square, Trash2 } from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Copy, Maximize2, Minimize2, Minus, Play, Plus, SkipBack, SkipForward, Square, Trash2 } from "lucide-react";
 import { useFrost, uid } from "@/lib/frost/store";
 import { audioStore } from "@/lib/frost/audioStore";
 import { playbackService } from "@/lib/frost/engine";
@@ -28,7 +28,10 @@ const LENGTHS = [
   { value: 16, label: "1 bar" },
 ];
 const MIN_LEN = 0.5;
-const ZOOMS = [2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64];
+/** Pixels per 16th step: from a whole 128-bar song on screen up to fine 1/32 editing. */
+const MIN_PPS = 0.25;
+const MAX_PPS = 64;
+const clampPps = (v: number) => Math.min(MAX_PPS, Math.max(MIN_PPS, v));
 const ROW_H = 44;
 const LABEL_W = 84;
 
@@ -98,12 +101,16 @@ export function TimelineView({ pat }: { pat: Pattern }) {
   }, [sideways]);
   const full = (sideways || forceFull) && !fullDismissed;
   const [snap, setSnap] = useState<number>(1);
-  const [zoom, setZoom] = useState(5); // index into ZOOMS
+  const [pps, setPps] = useState(12);
   const [sel, setSel] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ id: string; step: number; length: number | undefined; padId: string } | null>(null);
   const drag = useRef<Drag | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
-  const pps = ZOOMS[zoom];
+  /** Scroll position to restore after a zoom renders: keeps the spot under the fingers in place. */
+  const pendingScroll = useRef<{ left: number; top?: number } | null>(null);
+  const [view, setView] = useState({ left: 0, width: 1, total: 1 });
+  const ppsRef = useRef(pps);
+  ppsRef.current = pps;
   const L = pat.lengthSteps;
   const sd = stepDur(project.bpm);
 
@@ -179,6 +186,82 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     const x = LABEL_W + head * pps;
     if (x < el.scrollLeft + LABEL_W || x > el.scrollLeft + el.clientWidth - 24) el.scrollLeft = x - LABEL_W - 16;
   }, [head, pps]);
+
+  useLayoutEffect(() => {
+    const el = scroller.current, ps = pendingScroll.current;
+    if (!el || !ps) return;
+    el.scrollLeft = ps.left;
+    if (ps.top != null) el.scrollTop = ps.top;
+    pendingScroll.current = null;
+    readView();
+  });
+  const readView = () => {
+    const el = scroller.current;
+    if (el) setView({ left: el.scrollLeft, width: el.clientWidth, total: el.scrollWidth });
+  };
+  /** Zoom to `next` pixels per step, keeping the step under `screenX` (px from the scroller's left) still. */
+  const zoomTo = (next: number, screenX?: number) => {
+    const el = scroller.current;
+    const z = clampPps(next);
+    if (!el) return setPps(z);
+    const fx = screenX ?? (el.clientWidth + LABEL_W) / 2;
+    const step = Math.max(0, (el.scrollLeft + fx - LABEL_W) / ppsRef.current);
+    pendingScroll.current = { left: Math.max(0, step * z + LABEL_W - fx) };
+    setPps(z);
+  };
+  const fit = () => {
+    const el = scroller.current;
+    if (el) zoomTo((el.clientWidth - LABEL_W - 4) / L, LABEL_W);
+  };
+
+  // Two-finger pinch zooms around the fingers and pans with them; one finger scrolls natively.
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    let g: { d0: number; pps0: number; step: number; x0: number; y0: number; top0: number } | null = null;
+    const two = (e: TouchEvent) => {
+      const [a, b] = [e.touches[0], e.touches[1]];
+      const r = el.getBoundingClientRect();
+      return { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), x: (a.clientX + b.clientX) / 2 - r.left, y: (a.clientY + b.clientY) / 2 };
+    };
+    const start = (e: TouchEvent) => {
+      if (e.touches.length !== 2) return;
+      e.preventDefault();
+      drag.current = null; // a pinch that began on a hit is not a move
+      setDraft(null);
+      const t = two(e);
+      g = { d0: Math.max(10, t.d), pps0: ppsRef.current, step: (el.scrollLeft + t.x - LABEL_W) / ppsRef.current, x0: t.x, y0: t.y, top0: el.scrollTop };
+    };
+    const move = (e: TouchEvent) => {
+      if (!g || e.touches.length !== 2) return;
+      e.preventDefault();
+      const t = two(e);
+      const z = clampPps(g.pps0 * (t.d / g.d0));
+      pendingScroll.current = { left: Math.max(0, g.step * z + LABEL_W - t.x), top: g.top0 - (t.y - g.y0) };
+      if (z === ppsRef.current) {
+        el.scrollLeft = pendingScroll.current.left;
+        el.scrollTop = pendingScroll.current.top!;
+        pendingScroll.current = null;
+      } else setPps(z);
+    };
+    const end = (e: TouchEvent) => {
+      if (e.touches.length < 2) g = null;
+    };
+    const noPageZoom = (e: Event) => e.preventDefault(); // iOS Safari's own pinch gesture
+    el.addEventListener("touchstart", start, { passive: false });
+    el.addEventListener("touchmove", move, { passive: false });
+    el.addEventListener("touchend", end);
+    el.addEventListener("touchcancel", end);
+    el.addEventListener("gesturestart", noPageZoom);
+    return () => {
+      el.removeEventListener("touchstart", start);
+      el.removeEventListener("touchmove", move);
+      el.removeEventListener("touchend", end);
+      el.removeEventListener("touchcancel", end);
+      el.removeEventListener("gesturestart", noPageZoom);
+    };
+  }, []);
+  useEffect(readView, [pps, L, full]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const snapTo = (v: number) => Math.round(v / snap) * snap;
 
@@ -270,10 +353,10 @@ export function TimelineView({ pat }: { pat: Pattern }) {
   );
   const zoomButtons = (
     <div className="flex shrink-0 items-center gap-1">
-      <button aria-label="Zoom out" className="btn min-h-9 w-9 px-0" disabled={zoom === 0} onClick={() => setZoom(zoom - 1)}>
+      <button aria-label="Zoom out" className="btn min-h-9 w-9 px-0" disabled={pps <= MIN_PPS} onClick={() => zoomTo(pps / 1.5)}>
         <Minus className="size-4" />
       </button>
-      <button aria-label="Zoom in" className="btn min-h-9 w-9 px-0" disabled={zoom === ZOOMS.length - 1} onClick={() => setZoom(zoom + 1)}>
+      <button aria-label="Zoom in" className="btn min-h-9 w-9 px-0" disabled={pps >= MAX_PPS} onClick={() => zoomTo(pps * 1.5)}>
         <Plus className="size-4" />
       </button>
     </div>
@@ -290,7 +373,12 @@ export function TimelineView({ pat }: { pat: Pattern }) {
   );
 
   const grid = (
-    <div ref={scroller} className={cn("relative overflow-auto rounded-md border bg-background", full && "min-h-0 flex-1")}>
+    <div
+      ref={scroller}
+      className={cn("relative overflow-auto overscroll-contain rounded-md border bg-background", full ? "min-h-0 flex-1" : "max-h-[60vh]")}
+      style={{ touchAction: "pan-x pan-y" }}
+      onScroll={readView}
+    >
       <div className="relative" style={{ width: LABEL_W + L * pps }}>
         {/* ruler */}
         <div className="sticky top-0 z-30 flex h-6 border-b bg-background">
@@ -387,6 +475,55 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     </div>
   );
 
+  // Overview of the whole beat: hits as ticks, the visible window as a box. Drag or tap to fly there.
+  const gridPx = Math.max(1, view.total - LABEL_W);
+  const winL = Math.min(1, view.left / gridPx);
+  const winW = Math.min(1 - winL, Math.max(0.02, (view.width - LABEL_W) / gridPx));
+  const flyTo = (e: React.PointerEvent<HTMLDivElement>) => {
+    const el = scroller.current;
+    if (!el) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const f = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    el.scrollLeft = f * gridPx - (el.clientWidth - LABEL_W) / 2;
+  };
+  const navigator = (
+    <div className="flex shrink-0 items-center gap-1.5">
+      <button aria-label="Jump to the start" className="btn min-h-8 w-9 shrink-0 px-0" onClick={() => scroller.current?.scrollTo({ left: 0 })}>
+        <SkipBack className="size-4" />
+      </button>
+      <div
+        aria-label="Song overview — drag to move through the beat"
+        className="relative h-8 min-w-0 flex-1 touch-none overflow-hidden rounded-sm border bg-surface"
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          flyTo(e);
+        }}
+        onPointerMove={(e) => e.buttons && flyTo(e)}
+      >
+        {pat.notes.map((n) => {
+          const b = blocks.get(n.id);
+          const row = rowIds.indexOf(n.padId);
+          if (!b || row < 0) return null;
+          return (
+            <span
+              key={n.id}
+              className="absolute w-px bg-primary/70"
+              style={{ left: `${(b.at / L) * 100}%`, top: `${(row / Math.max(1, rowIds.length)) * 100}%`, height: `${100 / Math.max(1, rowIds.length)}%` }}
+            />
+          );
+        })}
+        {head >= 0 && <span className="absolute top-0 bottom-0 w-0.5 bg-foreground" style={{ left: `${(head / L) * 100}%` }} />}
+        <span className="pointer-events-none absolute top-0 bottom-0 rounded-sm border-2 border-foreground/80 bg-foreground/10" style={{ left: `${winL * 100}%`, width: `${winW * 100}%` }} />
+      </div>
+      <button aria-label="Jump to the end" className="btn min-h-8 w-9 shrink-0 px-0" onClick={() => scroller.current?.scrollTo({ left: gridPx })}>
+        <SkipForward className="size-4" />
+      </button>
+      <button aria-label="Fit the whole beat on screen" className="btn min-h-8 shrink-0 px-2 text-xs" onClick={fit}>
+        Fit
+      </button>
+    </div>
+  );
+
   const hitPanel =
     note && noteBlock ? (
       <section className={cn("panel", full ? "flex items-center gap-2 overflow-x-auto p-1.5" : "space-y-2")}>
@@ -437,7 +574,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
       </section>
     ) : (
       <p className="px-1 text-[11px] text-muted-foreground">
-        Tap the grid to place a hit · drag a hit to move it (up or down to change pads) · tap it, then drag the white handle to shorten it, down to 1/32. Loop pads repeat to fill a longer hit.
+        Pinch to zoom · drag empty grid to scroll · drag the strip below the grid to jump around · tap the grid to place a hit · drag a hit to move it (up or down to change pads) · tap it, then drag the white handle to shorten it, down to 1/32. Loop pads repeat to fill a longer hit.
       </p>
     );
 
@@ -484,6 +621,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
           {songButton}
         </div>
         {grid}
+        {navigator}
         <div className="shrink-0">{hitPanel}</div>
       </div>
     );
@@ -505,6 +643,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
       </div>
       <p className="text-[11px] text-muted-foreground">Turn your phone sideways for a full-screen timeline.</p>
       {grid}
+      {navigator}
       {addRow}
       {hitPanel}
     </div>
