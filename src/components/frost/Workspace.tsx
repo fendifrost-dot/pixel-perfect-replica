@@ -26,7 +26,7 @@ export function Workspace() {
         {view === "export" && <ExportView />}
       </main>
       {notice && (
-        <div className="fixed inset-x-3 bottom-24 z-30 mx-auto max-w-md rounded-md bg-popover px-4 py-3 text-sm shadow-lg ring-1 ring-border">
+        <div className="fixed inset-x-3 bottom-24 z-50 mx-auto max-w-md rounded-md bg-popover px-4 py-3 text-sm shadow-lg ring-1 ring-border">
           {notice}
         </div>
       )}

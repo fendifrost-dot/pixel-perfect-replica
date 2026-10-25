@@ -101,7 +101,13 @@ export function summarize(p: Project) {
       current: pt.id === p.currentPatternId,
       hits: [...pt.notes]
         .sort((a, b) => a.step + a.offset - (b.step + b.offset))
-        .map((n) => ({ pad: n.padId, step: n.step, velocity: n.velocity, offset: n.offset })),
+        .map((n) => ({
+          pad: n.padId,
+          step: n.step,
+          velocity: n.velocity,
+          offset: n.offset,
+          ...(n.length ? { length: n.length } : {}),
+        })),
       muted: pt.lanes.filter((l) => l.mute).map((l) => l.padId),
       soloed: pt.lanes.filter((l) => l.solo).map((l) => l.padId),
     })),
@@ -395,9 +401,13 @@ export const kitCatalog = () =>
     drums: k.drums.map((d) => ({ id: d.id, name: d.name })),
   }));
 
+/** Pattern lengths: 1–4 bars for loops, longer for a whole song on the Timeline. */
+export const PATTERN_BARS = [1, 2, 4, 8, 16, 32, 64, 128] as const;
+
 const barsToSteps = (bars: number) => {
-  if (![1, 2, 4].includes(bars)) throw new OpsError("Pattern length is 1, 2 or 4 bars.");
-  return (bars * 16) as Pattern["lengthSteps"];
+  if (!(PATTERN_BARS as readonly number[]).includes(bars))
+    throw new OpsError(`Pattern length is ${PATTERN_BARS.join(", ")} bars.`);
+  return bars * 16;
 };
 
 export function addPattern(
@@ -483,6 +493,8 @@ export interface HitInput {
   step: number;
   velocity?: number | undefined;
   offset?: number | undefined;
+  /** Steps the hit sounds for (0.5 = a 1/32 note); omit for the pad's natural length. */
+  length?: number | undefined;
 }
 
 /** Add hits (step = 16th note from pattern start, 0-based). An existing hit on the same pad+step is replaced. */
@@ -491,7 +503,9 @@ export function addHits(p: Project, patternId: string | undefined, hits: HitInpu
   const notes = [...pt.notes];
   for (const h of hits) {
     const pad = padOf(p, h.pad);
-    const step = Math.round(h.step);
+    // Whole steps as before; a half step (1/32) is placed exactly, like the Timeline does.
+    const step = Math.round(h.step * 2) / 2;
+    const exact = step % 1 !== 0;
     if (!(step >= 0 && step < pt.lengthSteps))
       throw new OpsError(
         `Step ${h.step} is outside this ${pt.lengthSteps / 16}-bar pattern (0–${pt.lengthSteps - 1}).`,
@@ -500,7 +514,16 @@ export function addHits(p: Project, patternId: string | undefined, hits: HitInpu
       h.velocity == null ? pad.velocity : Math.round(Math.min(127, Math.max(1, h.velocity)));
     const offset = h.offset == null ? 0 : Math.min(0.49, Math.max(-0.5, h.offset));
     const i = notes.findIndex((n) => n.padId === pad.id && n.step === step);
-    const note = { id: i >= 0 ? notes[i].id : rid("n"), padId: pad.id, step, velocity, offset };
+    if (h.length != null && !(h.length >= 0.5)) throw new OpsError("length must be at least 0.5 steps (a 1/32 note).");
+    const note = {
+      id: i >= 0 ? notes[i].id : rid("n"),
+      padId: pad.id,
+      step,
+      velocity,
+      offset: exact ? 0 : offset,
+      ...(exact ? { exact } : {}),
+      ...(h.length != null ? { length: h.length } : {}),
+    };
     if (i >= 0) notes[i] = note;
     else notes.push(note);
   }
@@ -567,3 +590,31 @@ export function setExport(p: Project, f: ExportPatch): Project {
 }
 
 export const PAD_IDS = BANKS.flatMap((b) => Array.from({ length: 16 }, (_, i) => `${b}${i + 1}`));
+
+/**
+ * Lay the Song (patterns in order) out as one long pattern, so the whole track can be seen and
+ * edited on the Timeline. Muted lanes are left out; the new pattern becomes current.
+ */
+export function songToTimeline(p: Project, name = "Full song"): { project: Project; patternId: string } {
+  const sections = p.arrangement
+    .map((b) => p.patterns.find((x) => x.id === b.patternId))
+    .filter((x): x is Pattern => !!x);
+  if (!sections.length) throw new OpsError("The song is empty — add patterns to it first.");
+  const total = sections.reduce((n, x) => n + x.lengthSteps, 0);
+  const bars = PATTERN_BARS.find((b) => b * 16 >= total);
+  if (!bars) throw new OpsError(`The song is longer than ${PATTERN_BARS.at(-1)} bars.`);
+  const notes: Pattern["notes"] = [];
+  let at = 0;
+  for (const pt of sections) {
+    const anySolo = pt.lanes.some((l) => l.solo);
+    for (const n of pt.notes) {
+      const lane = pt.lanes.find((l) => l.padId === n.padId);
+      if (lane && (lane.mute || (anySolo && !lane.solo))) continue;
+      notes.push({ ...n, id: rid("n"), step: n.step + at });
+    }
+    at += pt.lengthSteps;
+  }
+  const id = rid("p");
+  const pat: Pattern = { id, name, lengthSteps: bars * 16, lanes: [], notes };
+  return { project: { ...p, patterns: [...p.patterns, pat], currentPatternId: id }, patternId: id };
+}

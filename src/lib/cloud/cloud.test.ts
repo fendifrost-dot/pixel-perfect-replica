@@ -107,6 +107,23 @@ describe("project operations", () => {
     expect(() => ops.setPad(p, "A1", { chopStart: 1, chopEnd: 1 })).toThrow(ops.OpsError);
   });
 
+  it("lays the song out as one long Timeline pattern", () => {
+    let p = ops.makeChops(base(), "src_a", [{ start: 0, end: 2 }], { pads: ["A1"] }).project;
+    p = ops.addPattern(p, { name: "Verse", bars: 4 }).project;
+    const verse = p.currentPatternId;
+    p = ops.addHits(p, verse, [{ pad: "A1", step: 0 }, { pad: "A1", step: 3.5, length: 0.5 }]);
+    p = ops.setSong(p, [verse, verse, verse]);
+    const r = ops.songToTimeline(p);
+    const tl = r.project.patterns.find((x) => x.id === r.patternId)!;
+    expect(tl.lengthSteps).toBe(16 * 16); // 12 bars rounds up to 16
+    expect(tl.notes.map((n) => n.step).sort((a, b) => a - b)).toEqual([0, 3.5, 64, 67.5, 128, 131.5]);
+    expect(tl.notes.find((n) => n.step === 67.5)).toMatchObject({ exact: true, length: 0.5 });
+    expect(r.project.currentPatternId).toBe(r.patternId);
+    expect(() => ops.addHits(p, verse, [{ pad: "A1", step: 0, length: 0.2 }])).toThrow(ops.OpsError);
+    expect(() => ops.editPattern(p, verse, { bars: 3 })).toThrow(ops.OpsError);
+    expect(ops.editPattern(p, verse, { bars: 32 }).patterns.find((x) => x.id === verse)!.lengthSteps).toBe(512);
+  });
+
   it("adds, replaces and removes hits", () => {
     let p = base();
     p = ops.addHits(p, undefined, [

@@ -47,7 +47,8 @@ export function planHits(
   const hits: PlannedHit[] = raw.map((h) => {
     const pad = padById.get(h.padId);
     const out: PlannedHit = { ...h, time: h.at * sd };
-    if (pad && pad.mode !== "oneshot")
+    if (h.length) out.stopAt = (h.at + h.length) * sd;
+    else if (pad && pad.mode !== "oneshot")
       out.stopAt = (holds.get(h.noteId + "@" + h.at) ?? total) * sd;
     return out;
   });
