@@ -4,6 +4,8 @@ import { DrumPicker } from "./DrumPicker";
 import { useFrost, uid } from "@/lib/frost/store";
 import type { Lane, Pattern } from "@/lib/frost/types";
 import { Segmented } from "./controls";
+import { TimelineView } from "./TimelineView";
+import { songToTimeline } from "@/lib/frost/ops";
 import { cn } from "@/lib/utils";
 
 /** The beat: one pattern's step grid, or the song (patterns in order). Choosing one also sets what Play plays. */
@@ -30,6 +32,7 @@ function PatternEditor() {
   const [selNote, setSelNote] = useState<string | null>(null);
   const [drumsOpen, setDrumsOpen] = useState(false);
   const pat = project.patterns.find((p) => p.id === project.currentPatternId)!;
+  const [layout, setLayout] = useState<"steps" | "timeline">(() => (pat.lengthSteps > 64 ? "timeline" : "steps"));
   const pages = pat.lengthSteps / 16;
   const pg = Math.min(page, pages - 1);
   const upd = (fn: (p: Pattern) => Pattern, history = true) => commit((p) => ({ ...p, patterns: p.patterns.map((x) => (x.id === pat.id ? fn(x) : x)) }), { history });
@@ -85,7 +88,20 @@ function PatternEditor() {
         </button>
       </div>
 
+      <Segmented
+        value={layout}
+        onChange={setLayout}
+        options={[
+          { value: "steps", label: "Steps" },
+          { value: "timeline", label: "Timeline" },
+        ]}
+      />
+
+      {layout === "timeline" ? <TimelineView pat={pat} /> : <>
       <div className="flex items-center gap-2">
+        {pat.lengthSteps > 64 ? (
+          <div className="flex-1 text-xs text-muted-foreground">{pat.lengthSteps / 16} bars — change the length on Timeline</div>
+        ) : (
         <Segmented
           className="flex-1"
           value={pat.lengthSteps}
@@ -96,6 +112,7 @@ function PatternEditor() {
             { value: 64, label: "4 bars" },
           ]}
         />
+        )}
         <button aria-label="Copy pattern" className="btn min-h-11 w-11 px-0" onClick={() => addPattern(true)}>
           <Copy className="size-4" />
         </button>
@@ -104,8 +121,17 @@ function PatternEditor() {
         </button>
       </div>
 
-      {pages > 1 && (
+      {pages > 1 && pages <= 4 && (
         <Segmented value={pg} onChange={setPage} options={Array.from({ length: pages }, (_, i) => ({ value: i, label: `Bar ${i + 1}` }))} />
+      )}
+      {pages > 4 && (
+        <div className="flex gap-1 overflow-x-auto pb-1">
+          {Array.from({ length: pages }, (_, i) => (
+            <button key={i} className={cn("btn min-h-9 shrink-0 px-3 text-xs", pg === i && "btn-on")} onClick={() => setPage(i)}>
+              Bar {i + 1}
+            </button>
+          ))}
+        </div>
       )}
 
       {!rowIds.length && !addable.length && <p className="panel text-sm text-muted-foreground">Add drums below, or put chops on pads on Chop — then tap steps here, or press ● and play the pads.</p>}
@@ -208,12 +234,13 @@ function PatternEditor() {
           </p>
         </section>
       )}
+      </>}
     </>
   );
 }
 
 function SongEditor() {
-  const { project, commit } = useFrost();
+  const { project, commit, setLoopMode, notify } = useFrost();
   const arr = project.arrangement;
   const set = (a: typeof arr) => commit((p) => ({ ...p, arrangement: a }));
   const move = (i: number, d: number) => {
@@ -258,6 +285,22 @@ function SongEditor() {
           </li>
         ))}
       </ol>
+      {arr.length > 0 && (
+        <button
+          className="btn w-full text-xs"
+          onClick={() => {
+            try {
+              const r = songToTimeline(project);
+              commit(() => r.project);
+              setLoopMode("pattern");
+            } catch (err) {
+              notify((err as Error).message);
+            }
+          }}
+        >
+          Lay the whole song out on the Timeline
+        </button>
+      )}
       <p className="px-1 text-[11px] text-muted-foreground">
         {arr.length ? "Play runs the song top to bottom and repeats. Export → Song renders it once." : "Add patterns in the order they should play."}
       </p>

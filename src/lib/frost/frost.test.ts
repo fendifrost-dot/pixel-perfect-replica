@@ -10,6 +10,7 @@ import {
   stepDur,
 } from "./timing";
 import { decodeWav, encodeWav24 } from "./wav";
+import { planHits } from "./render";
 import { boundaries, detectOnsets, firstAudible, generateBeatGrid, moveBeat, suggestTempo } from "./analysis";
 import { stretchLength, wsola } from "./stretch";
 import { createDemoProject, makePad } from "./demo";
@@ -44,6 +45,22 @@ describe("timing", () => {
 
   it("wraps hits quantized past the loop end", () => {
     expect(effectiveStep({ step: 15, offset: 0.49 }, "1/8", 50, 16)).toBe(0);
+  });
+
+  it("leaves Timeline hits (exact, 1/32) where they were put", () => {
+    expect(effectiveStep({ step: 3.5, offset: 0, exact: true }, "1/16", 50, 16)).toBe(3.5);
+    expect(effectiveStep({ step: 3.5, offset: 0 }, "1/16", 50, 16)).toBe(4);
+  });
+
+  it("carries a hit's own length into the schedule and the export plan", () => {
+    const p = createDemoProject();
+    const pat = p.patterns.find((x) => x.id === p.currentPatternId)!;
+    const n = pat.notes[0];
+    n.length = 0.5;
+    const hit = eventsInRange(p, patternSections(p, 1), 0, pat.lengthSteps, false).find((h) => h.noteId === n.id)!;
+    expect(hit.length).toBe(0.5);
+    const planned = planHits(p, patternSections(p, 1)).hits.find((h) => h.noteId === n.id)!;
+    expect(planned.stopAt).toBeCloseTo((hit.at + 0.5) * stepDur(p.bpm));
   });
 
   it("records taps as step + offset", () => {
