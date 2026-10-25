@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { BoxSelect, ClipboardPaste, Copy, CopyPlus, Mic, Maximize2, Minimize2, Minus, Play, Plus, Repeat, Scissors, SkipBack, SkipForward, Square, Trash2 } from "lucide-react";
+import { BoxSelect, ClipboardPaste, Copy, CopyPlus, Magnet, Maximize, Mic, Maximize2, Minimize2, Minus, Play, Plus, Repeat, Scissors, SkipBack, SkipForward, Square, Trash2 } from "lucide-react";
 import { useFrost, uid } from "@/lib/frost/store";
 import { audioStore } from "@/lib/frost/audioStore";
 import { playbackService } from "@/lib/frost/engine";
@@ -55,7 +55,7 @@ function waveImage(slice: Slice, reverse: boolean): string | null {
   if (hit) return hit;
   const b = audioStore.getBuffer(slice.sourceId);
   if (!b || typeof document === "undefined") return null;
-  const W = 240, H = 40;
+  const W = 240, H = 96;
   const cols = waveColumns(
     Array.from({ length: b.numberOfChannels }, (_, i) => b.getChannelData(i)),
     b.sampleRate,
@@ -87,7 +87,7 @@ type ClipItem = Omit<NoteEvent, "id" | "step" | "offset" | "exact"> & { rel: num
 /** The copied hits — kept outside the component so they survive switching tabs. */
 let clipboard: ClipItem[] | null = null;
 
-type Menu = { x: number; y: number; padId: string; step: number; noteId?: string };
+type Menu = { x: number; y: number; padId: string; step: number; noteId?: string; row?: boolean };
 
 type Drag = {
   id: string;
@@ -207,10 +207,16 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     return pad && s ? playPlan(pad, s, project.bpm).duration / sd : 1;
   };
 
-  const rowIds = project.pads
+  const allRows = project.pads
     .filter((p) => pat.notes.some((n) => n.padId === p.id) || pat.lanes.some((l) => l.padId === p.id) || (p.id === project.selectedPadId && p.sliceId))
     .map((p) => p.id);
-  const addable = project.pads.filter((p) => p.sliceId && !rowIds.includes(p.id));
+  /** Focus: one track blown up to fill the timeline, to see exactly where its hits sit. */
+  const [focusRow, setFocusRow] = useState<string | null>(null);
+  const rowIds = focusRow && allRows.includes(focusRow) ? [focusRow] : allRows;
+  const [boxH, setBoxH] = useState(0);
+  // full screen: the grid has a fixed height to fill; upright it grows with its content, so use a set size
+  const rowH = rowIds.length === 1 && focusRow ? (full ? Math.max(120, boxH - RULER_H - 4) : 260) : ROW_H;
+  const addable = project.pads.filter((p) => p.sliceId && !allRows.includes(p.id));
   const laneOf = (padId: string): Lane => pat.lanes.find((l) => l.padId === padId) ?? { padId, mute: false, solo: false };
   const setLane = (padId: string, patch: Partial<Lane>) =>
     upd((x) => ({ ...x, lanes: [...x.lanes.filter((l) => l.padId !== padId), { ...laneOf(padId), ...patch }] }));
@@ -317,23 +323,70 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     const end = (e: TouchEvent) => {
       if (e.touches.length < 2) g = null;
     };
-    const noPageZoom = (e: Event) => e.preventDefault(); // iOS Safari's own pinch gesture
+    // iOS Safari also reports a pinch as a "gesture" with a scale — used when the touch path above
+    // didn't catch it (e.g. a finger already scrolling when the second one landed).
+    type Gesture = Event & { scale: number; clientX: number };
+    let gs: { pps0: number; step: number; x: number } | null = null;
+    const gStart = (e: Event) => {
+      e.preventDefault(); // never zoom the whole page
+      if (g) return;
+      const r = el.getBoundingClientRect();
+      const x = ((e as Gesture).clientX ?? r.left + r.width / 2) - r.left;
+      gs = { pps0: ppsRef.current, step: (el.scrollLeft + x - LABEL_W) / ppsRef.current, x };
+    };
+    const gChange = (e: Event) => {
+      e.preventDefault();
+      if (g || !gs) return;
+      const z = clampPps(gs.pps0 * (e as Gesture).scale);
+      pendingScroll.current = { left: Math.max(0, gs.step * z + LABEL_W - gs.x) };
+      setPps(z);
+    };
+    const gEnd = (e: Event) => {
+      e.preventDefault();
+      gs = null;
+    };
     el.addEventListener("touchstart", start, { passive: false });
     el.addEventListener("touchmove", move, { passive: false });
     el.addEventListener("touchend", end);
     el.addEventListener("touchcancel", end);
-    el.addEventListener("gesturestart", noPageZoom);
+    el.addEventListener("gesturestart", gStart);
+    el.addEventListener("gesturechange", gChange);
+    el.addEventListener("gestureend", gEnd);
+    // the focused track fills whatever height the timeline has
+    const ro = new ResizeObserver(() => setBoxH(el.clientHeight));
+    ro.observe(el);
     return () => {
       el.removeEventListener("touchstart", start);
       el.removeEventListener("touchmove", move);
       el.removeEventListener("touchend", end);
       el.removeEventListener("touchcancel", end);
-      el.removeEventListener("gesturestart", noPageZoom);
+      el.removeEventListener("gesturestart", gStart);
+      el.removeEventListener("gesturechange", gChange);
+      el.removeEventListener("gestureend", gEnd);
+      ro.disconnect();
     };
-  }, []);
+    // Re-attach whenever the grid is rebuilt: going full screen (phone sideways) makes a new one.
+  }, [full]);
   useEffect(readView, [pps, L, full]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const snapTo = (v: number) => Math.round(v / snap) * snap;
+  const snapName = SNAPS.find((x) => x.value === snap)?.label ?? "grid";
+  /** Pull hits onto the grid (the current snap): the start moves to the nearest line; length is kept. */
+  const quantize = (ids: Iterable<string>) => {
+    const set = new Set(ids);
+    let moved = 0;
+    upd((x) => ({
+      ...x,
+      notes: x.notes.map((n) => {
+        if (!set.has(n.id)) return n;
+        const at = blocks.get(n.id)?.at ?? n.step + n.offset;
+        const step = Math.max(0, snapTo(at));
+        if (Math.abs(step - at) > 1e-6 || n.offset) moved++;
+        return { ...n, step, offset: 0, exact: true };
+      }),
+    }));
+    notify(moved ? `Snapped ${moved} hit${moved === 1 ? "" : "s"} to the ${snapName} grid.` : `Already on the ${snapName} grid.`);
+  };
 
   const onBlockDown = (e: React.PointerEvent, n: NoteEvent, kind: Drag["kind"]) => {
     e.stopPropagation();
@@ -368,13 +421,13 @@ export function TimelineView({ pat }: { pat: Pattern }) {
       const minAt = Math.min(...group.map((x) => blocks.get(x.id)?.at ?? 0));
       const rows = group.map((x) => rowIds.indexOf(x.padId));
       const dStep = Math.max(-minAt, snapTo(dx / pps));
-      const dRow = Math.min(rowIds.length - 1 - Math.max(...rows), Math.max(-Math.min(...rows), Math.round(dy / ROW_H)));
+      const dRow = Math.min(rowIds.length - 1 - Math.max(...rows), Math.max(-Math.min(...rows), Math.round(dy / rowH)));
       setGroupDraft({ dStep, dRow });
       return;
     }
     if (d.kind === "move") {
       const step = Math.min(W - MIN_LEN, Math.max(0, snapTo(d.step0 + dx / pps)));
-      const row = Math.min(rowIds.length - 1, Math.max(0, d.row0 + Math.round(dy / ROW_H)));
+      const row = Math.min(rowIds.length - 1, Math.max(0, d.row0 + Math.round(dy / rowH)));
       setDraft({ id: d.id, step, length: n.length, padId: rowIds[row] ?? n.padId });
     } else {
       const pad = padOf(n.padId);
@@ -477,6 +530,11 @@ export function TimelineView({ pat }: { pat: Pattern }) {
   );
   const zoomButtons = (
     <div className="flex shrink-0 items-center gap-1">
+      {focusRow && (
+        <button className="btn btn-on min-h-9 shrink-0 px-2 text-xs" onClick={() => setFocusRow(null)}>
+          {focusRow} · all tracks
+        </button>
+      )}
       <button aria-label="Zoom out" className="btn min-h-9 w-9 px-0" disabled={pps <= MIN_PPS} onClick={() => zoomTo(pps / 1.5)}>
         <Minus className="size-4" />
       </button>
@@ -508,7 +566,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     if (!b) return;
     if (Math.abs(b.x1 - b.x0) < 6 && Math.abs(b.y1 - b.y0) < 6) return setPicked(new Set()); // tap on empty grid clears
     const s0 = Math.min(b.x0, b.x1) / pps, s1 = Math.max(b.x0, b.x1) / pps;
-    const r0 = Math.floor(Math.min(b.y0, b.y1) / ROW_H), r1 = Math.floor(Math.max(b.y0, b.y1) / ROW_H);
+    const r0 = Math.floor(Math.min(b.y0, b.y1) / rowH), r1 = Math.floor(Math.max(b.y0, b.y1) / rowH);
     const hit = pat.notes.filter((n) => {
       const bl = blocks.get(n.id);
       const row = rowIds.indexOf(n.padId);
@@ -557,11 +615,15 @@ export function TimelineView({ pat }: { pat: Pattern }) {
           const img = slice && pad ? waveImage(slice, pad.reverse) : null;
           const notes = pat.notes.filter((n) => shown(n).padId === padId);
           return (
-            <div key={padId} className={cn("flex border-b", lane.mute && "opacity-50")} style={{ height: ROW_H }}>
+            <div key={padId} className={cn("flex border-b", lane.mute && "opacity-50")} style={{ height: rowH }}>
               <div className="sticky left-0 z-20 flex shrink-0 flex-col justify-center gap-0.5 border-r bg-surface px-1.5" style={{ width: LABEL_W }}>
-                <div className="truncate text-[11px] font-semibold leading-tight">
+                <button
+                  aria-label={`Track ${padId} options`}
+                  className="truncate text-left text-[11px] font-semibold leading-tight underline decoration-dotted underline-offset-2"
+                  onClick={(e) => setMenu({ x: e.clientX, y: e.clientY, padId, step: 0, row: true })}
+                >
                   <span className="font-mono text-muted-foreground">{padId}</span> {slice?.name ?? "Empty"}
-                </div>
+                </button>
                 <div className="flex gap-1">
                   <button aria-pressed={lane.mute} className={cn("btn min-h-5 flex-1 px-0 text-[10px]", lane.mute && "bg-rec")} onClick={() => setLane(padId, { mute: !lane.mute })}>
                     M
@@ -759,14 +821,29 @@ export function TimelineView({ pat }: { pat: Pattern }) {
       <div className="fixed inset-0 z-[60]" onClick={closeMenu} onContextMenu={(e) => e.preventDefault()} />
       <div
         role="menu"
-        aria-label={menuNote ? "Hit menu" : "Grid menu"}
-        className="fixed z-[61] w-44 rounded-md border bg-popover p-1 shadow-lg"
+        aria-label={menu.row ? "Track menu" : menuNote ? "Hit menu" : "Grid menu"}
+        className="fixed z-[61] w-56 rounded-md border bg-popover p-1 shadow-lg"
         style={{
-          left: Math.min(menu.x, (typeof window !== "undefined" ? window.innerWidth : 400) - 184),
-          top: Math.min(menu.y + 8, (typeof window !== "undefined" ? window.innerHeight : 800) - (menuNote ? 196 : 60)),
+          left: Math.min(menu.x, (typeof window !== "undefined" ? window.innerWidth : 400) - 232),
+          top: Math.min(menu.y + 8, (typeof window !== "undefined" ? window.innerHeight : 800) - (menuNote ? 244 : menu.row ? 150 : 60)),
         }}
       >
-        {menuNote ? (
+        {menu.row ? (
+          <>
+            {focusRow
+              ? menuItem("Show all tracks", Maximize, () => setFocusRow(null))
+              : menuItem("Focus this track", Maximize, () => {
+                  setFocusRow(menu.padId);
+                  setSelectMode(false);
+                })}
+            {menuItem(`Quantize this track (${snapName})`, Magnet, () => quantize(pat.notes.filter((n) => n.padId === menu.padId).map((n) => n.id)))}
+            {menuItem("Select this track's hits", BoxSelect, () => {
+              setSelectMode(true);
+              setSel(null);
+              setPicked(new Set(pat.notes.filter((n) => n.padId === menu.padId).map((n) => n.id)));
+            })}
+          </>
+        ) : menuNote ? (
           <>
             {menuItem("Copy", Copy, () => copyHit(menuNote))}
             {menuItem("Cut", Scissors, () => {
@@ -846,6 +923,9 @@ export function TimelineView({ pat }: { pat: Pattern }) {
           </button>
         ))}
       </div>
+      <button aria-label="Quantize selected" className="btn min-h-9 shrink-0 text-xs" disabled={!picked.size} onClick={() => quantize(picked)}>
+        <Magnet className="size-4" /> Quantize
+      </button>
       <button aria-label="Delete selected" className="btn min-h-9 shrink-0 text-xs" disabled={!picked.size} onClick={() => {
           upd((x) => ({ ...x, notes: x.notes.filter((n) => !picked.has(n.id)) }));
           setPicked(new Set());
@@ -875,6 +955,9 @@ export function TimelineView({ pat }: { pat: Pattern }) {
             }}
           >
             <Copy className="size-4" /> {full ? "" : "Copy after"}
+          </button>
+          <button aria-label="Quantize hit" title={`Snap to the ${snapName} grid`} className="btn min-h-9 shrink-0 text-xs" onClick={() => quantize([note.id])}>
+            <Magnet className="size-4" /> {full ? "" : "Quantize"}
           </button>
           <button
             aria-label="Delete hit"
@@ -947,7 +1030,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
       </section>
     ) : (
       <p className="px-1 text-[11px] text-muted-foreground">
-        Mic: hum a bassline or melody (or beatbox drums) and pick the instrument · Select (box icon) to pick several hits, drag them together, copy them or repeat them · hold a hit to copy, cut or delete it · hold empty grid to paste · pinch to zoom · drag empty grid to scroll · drag the strip below the grid to jump around · tap the grid to place a hit · drag a hit to move it (up or down to change pads) · tap it, then drag the white handle to shorten it, down to 1/32. Loop pads repeat to fill a longer hit.
+        Tap a track's name to focus it (fills the screen) or quantize it · Mic: hum a bassline or melody (or beatbox drums) and pick the instrument · Select (box icon) to pick several hits, drag them together, copy them or repeat them · hold a hit to copy, cut or delete it · hold empty grid to paste · pinch to zoom · drag empty grid to scroll · drag the strip below the grid to jump around · tap the grid to place a hit · drag a hit to move it (up or down to change pads) · tap it, then drag the white handle to shorten it, down to 1/32. Loop pads repeat to fill a longer hit.
       </p>
     );
 
