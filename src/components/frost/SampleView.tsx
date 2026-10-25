@@ -21,7 +21,9 @@ import {
   playbackService,
   sliceService,
   tempoService,
+  keyService,
 } from "@/lib/frost/engine";
+import type { KeyResult } from "@/lib/frost/key";
 import { Waveform, type WaveMode } from "./Waveform";
 import { Segmented } from "./controls";
 import { cn } from "@/lib/utils";
@@ -48,6 +50,9 @@ export function SampleView() {
   const [divisions, setDivisions] = useState(16);
   const [everyBeats, setEveryBeats] = useState(1);
   const [suggestion, setSuggestion] = useState<{ bpm: number; confidence: number } | null>(null);
+  /** Key of the whole recording (found automatically) and of the selection (on request). */
+  const [songKey, setSongKey] = useState<KeyResult | null | "working">(null);
+  const [selKey, setSelKey] = useState<{ range: [number, number]; key: KeyResult | null } | null>(null);
   const [srcBpm, setSrcBpm] = useState("");
   const [auditioning, setAuditioning] = useState(false);
   const auditionTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -62,6 +67,15 @@ export function SampleView() {
   const grid = src ? project.beatGrids[src.id] : undefined;
   const dur = src?.durationSec ?? 1;
   const selectedPad = project.pads.find((p) => p.id === project.selectedPadId);
+
+  // New source: find its key in the background (a beat after the waveform appears).
+  useEffect(() => {
+    setSelKey(null);
+    if (!src || !buffer) return setSongKey(null);
+    setSongKey("working");
+    const t = setTimeout(() => setSongKey(keyService.detect(src.id)), 60);
+    return () => clearTimeout(t);
+  }, [src?.id, audioVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // New source: reset the view and suggest its tempo automatically.
   useEffect(() => {
@@ -589,6 +603,41 @@ export function SampleView() {
             Use {grid.bpm} as the beat's BPM
           </button>
         )}
+      </section>
+
+      <section className="panel space-y-2" aria-label="Key">
+        <div className="eyebrow">Key</div>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-sm text-muted-foreground">Whole recording</span>
+          <span className="font-mono text-sm">
+            {songKey === "working" ? "listening…" : songKey ? songKey.name : buffer ? "can't tell" : "—"}
+          </span>
+        </div>
+        {sel && (
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm text-muted-foreground">Selection</span>
+            {selKey && selKey.range[0] === sel.start && selKey.range[1] === sel.end ? (
+              <span className="font-mono text-sm">{selKey.key ? selKey.key.name : "too short / unclear"}</span>
+            ) : (
+              <button
+                className="btn min-h-8 px-3 text-xs"
+                disabled={!buffer}
+                onClick={() => src && setSelKey({ range: [sel.start, sel.end], key: keyService.detect(src.id, sel.start, sel.end) })}
+              >
+                Find key
+              </button>
+            )}
+          </div>
+        )}
+        <p className="text-[11px] text-muted-foreground">
+          {songKey && songKey !== "working"
+            ? `${songKey.confidence < 0.25 ? `Close call — could be ${songKey.runnerUp}. ` : ""}Relative ${songKey.mode === "minor" ? "major" : "minor"}: ${songKey.relative}.${
+                Math.abs(songKey.tuningCents) >= 15
+                  ? ` Tuned ${songKey.tuningCents > 0 ? "+" : ""}${songKey.tuningCents} cents from A = 440 — the key shown is what it matches in your DAW.`
+                  : ""
+              }`
+            : "Heard from the notes in the audio, as it sounds at standard A = 440 tuning."}
+        </p>
       </section>
     </div>
   );

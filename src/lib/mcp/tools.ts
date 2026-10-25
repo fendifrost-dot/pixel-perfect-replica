@@ -7,6 +7,7 @@ import { defineTool, ToolError } from "@lovable.dev/mcp-js";
 import { z } from "zod";
 import * as ops from "../frost/ops";
 import { detectOnsets, suggestTempo } from "../frost/analysis";
+import { detectKey } from "../frost/key";
 import { decodeWav } from "../frost/wav";
 import type { Project, SourceAsset } from "../frost/types";
 import { cleanName } from "../frost/persist";
@@ -306,6 +307,19 @@ export const tools = [
       const key = await resolveKey(project);
       const w = await loadWav(key, recording);
       return json({ suggestion: suggestTempo(w.mono, w.sampleRate) });
+    },
+  }),
+  defineTool({
+    name: "suggest_key",
+    title: "Find a recording's key",
+    description:
+      "Estimate the musical key of a recording (WAV recordings only), or of part of it with start/end in seconds. Reported as it sounds at A = 440, with the recording's tuning offset in cents (e.g. a Baroque A = 415 band reads about a semitone low).",
+    inputSchema: { project: PROJECT, recording: z.string(), start: z.number().optional(), end: z.number().optional() },
+    annotations: { readOnlyHint: true },
+    handler: async ({ project, recording, start, end }) => {
+      const key = await resolveKey(project);
+      const w = await loadWav(key, recording);
+      return json({ key: detectKey(w.mono, w.sampleRate, start, end) });
     },
   }),
   defineTool({
