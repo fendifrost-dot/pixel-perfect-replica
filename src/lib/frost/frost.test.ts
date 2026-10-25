@@ -10,7 +10,7 @@ import {
   stepDur,
 } from "./timing";
 import { decodeWav, encodeWav24 } from "./wav";
-import { planHits } from "./render";
+import { padSampleName, planHits } from "./render";
 import { boundaries, detectOnsets, firstAudible, generateBeatGrid, moveBeat, suggestTempo } from "./analysis";
 import { stretchLength, wsola } from "./stretch";
 import { createDemoProject, makePad } from "./demo";
@@ -308,5 +308,15 @@ describe("project migration", () => {
 
   it("rejects unknown versions", () => {
     expect(() => migrateProject({ schemaVersion: 99 })).toThrow();
+  });
+});
+
+describe("pad sample export", () => {
+  it("names each sample by pad and chop, with its musical length when fitted", () => {
+    const p = { ...createDemoProject(), name: "My beat", bpm: 132 };
+    const pad = { ...makePad("A", 12), lengthUnit: "bars" as const, lengthValue: 2, timeMode: "stretch" as const };
+    expect(padSampleName(p, pad, "Chop 12", "pad")).toBe("My_beat_A13_Chop_12_8beats_132bpm.wav");
+    expect(padSampleName(p, pad, "Chop 12", "original")).toBe("My_beat_A13_Chop_12_original.wav");
+    expect(padSampleName(p, { ...pad, lengthUnit: "off" }, "Kick", "pad")).toBe("My_beat_A13_Kick.wav");
   });
 });

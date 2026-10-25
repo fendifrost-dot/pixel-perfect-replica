@@ -10,6 +10,7 @@ import type { RenderService, RenderedFile } from "./services";
 import {
   eventsInRange,
   holdEnds,
+  lengthBeats,
   padForHit,
   patternSections,
   sectionsLength,
@@ -18,9 +19,10 @@ import {
   type ScheduledHit,
   type Section,
 } from "./timing";
-import { CHOKE_FADE, padSource, prepareStretches, startVoice } from "./voice";
+import { CHOKE_FADE, MIN_ATTACK, MIN_RELEASE, padSource, prepareStretches, startVoice } from "./voice";
+import { audioStore } from "./audioStore";
 import { encodeWav24 } from "./wav";
-import type { Project } from "./types";
+import type { Pad, Project } from "./types";
 
 export interface PlannedHit extends ScheduledHit {
   time: number;
@@ -154,8 +156,84 @@ export async function renderProject(
   return { files, channels, frames, sampleRate };
 }
 
+/** How a pad sample is exported: as the pad plays it, or the untouched cut from the recording. */
+export type PadSampleMode = "pad" | "original";
+
+/** File name for one pad's sample: pad, chop name, and its musical length when it is fitted. */
+export function padSampleName(p: Project, pad: Pad, chopName: string, mode: PadSampleMode): string {
+  const fit = mode === "pad" && pad.lengthUnit !== "off" ? `_${lengthBeats(pad)}beats_${p.bpm}bpm` : "";
+  return `${safe(p.name)}_${pad.id}_${safe(chopName)}${fit}${mode === "original" ? "_original" : ""}.wav`;
+}
+
+/**
+ * Every pad with a sound as its own WAV, no beat needed — to load into a DAW's sampler or drop on
+ * a track. "pad": exactly what a tap plays (fit / stretch, pitch, reverse, fades), one pass, at
+ * full level and centred so it can be mixed in the DAW. "original": the cut, untouched.
+ * Pads whose recording isn't loaded on this device are listed in `skipped`.
+ */
+export async function renderPadSamples(
+  p: Project,
+  mode: PadSampleMode,
+  onProgress?: (msg: string) => void,
+): Promise<{ files: RenderedFile[]; skipped: string[] }> {
+  const sampleRate = p.export.sampleRate;
+  if (mode === "pad") prepareStretches(p);
+  const pads = p.pads.filter((x) => x.sliceId);
+  if (!pads.length) throw new Error("No pads have a sound yet — chop a recording onto the pads first.");
+  const files: RenderedFile[] = [];
+  const skipped: string[] = [];
+  for (const [i, pad] of pads.entries()) {
+    const slice = p.slices.find((s) => s.id === pad.sliceId);
+    if (!slice || !audioStore.getBuffer(slice.sourceId)) {
+      skipped.push(pad.id);
+      continue;
+    }
+    onProgress?.(`Rendering pad ${i + 1}/${pads.length} (${pad.id})…`);
+    let ch: Float32Array[];
+    if (mode === "original") {
+      const b = audioStore.getBuffer(slice.sourceId)!;
+      const dur = slice.end - slice.start;
+      const frames = Math.max(1, Math.ceil(dur * sampleRate));
+      const off = new OfflineAudioContext({ numberOfChannels: 2, length: frames, sampleRate });
+      const src = off.createBufferSource();
+      src.buffer = b;
+      // only the app's own click-guard fades (2 ms in, 4 ms out); nothing else is changed
+      const g = off.createGain();
+      g.gain.setValueAtTime(0, 0);
+      g.gain.linearRampToValueAtTime(1, MIN_ATTACK);
+      g.gain.setValueAtTime(1, Math.max(MIN_ATTACK, dur - MIN_RELEASE));
+      g.gain.linearRampToValueAtTime(0, dur);
+      src.connect(g).connect(off.destination);
+      src.start(0, slice.start, dur);
+      const out = await off.startRendering();
+      ch = [out.getChannelData(0), out.getChannelData(1)];
+    } else {
+      // one pass of the pad as tapped, at full level and centred
+      const one: Pad = { ...pad, mode: "oneshot", volume: 1, pan: 0 };
+      const ps = padSource(one, slice, p.bpm)!;
+      const frames = Math.max(1, Math.ceil(ps.playDuration * sampleRate));
+      const off = new OfflineAudioContext({ numberOfChannels: 2, length: frames, sampleRate });
+      startVoice(off, off.destination, one, ps, 127, 0);
+      const out = await off.startRendering();
+      ch = [out.getChannelData(0), out.getChannelData(1)];
+    }
+    const enc = encodeWav24(ch, sampleRate);
+    files.push({
+      name: padSampleName(p, pad, slice.name, mode),
+      blob: new Blob([enc.bytes as Uint8Array<ArrayBuffer>], { type: "audio/wav" }),
+      frames: ch[0].length,
+      peak: enc.peak,
+      clipped: enc.clipped,
+      kind: "stem",
+    });
+  }
+  if (!files.length) throw new Error("None of the pads' recordings are loaded on this phone yet — open Chop and wait for the waveform.");
+  return { files, skipped };
+}
+
 export const renderService: RenderService = {
   async renderWav(p, onProgress) {
     return (await renderProject(p, onProgress)).files;
   },
+  renderPadSamples,
 };

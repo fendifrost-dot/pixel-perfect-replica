@@ -62,26 +62,26 @@ export function ExportView() {
     }
   };
 
-  const asFiles = () => files.map((f) => new File([f.blob], f.name, { type: "audio/wav" }));
-  const canShare =
-    typeof navigator !== "undefined" &&
-    !!navigator.canShare &&
-    files.length > 0 &&
-    navigator.canShare({ files: asFiles() });
-  const share = async () => {
+  // Pad samples: every pad's sound as its own WAV, no beat needed.
+  const [padMode, setPadMode] = useState<"pad" | "original">("pad");
+  const [padFiles, setPadFiles] = useState<RenderedFile[]>([]);
+  const padCount = project.pads.filter((x) => x.sliceId).length;
+  const renderPads = async () => {
+    setBusy("Preparing…");
+    setPadFiles([]);
     try {
-      await navigator.share({ files: asFiles(), title: project.name });
+      const { files: out, skipped } = await renderService.renderPadSamples(project, padMode, setBusy);
+      setPadFiles(out);
+      notify(
+        skipped.length
+          ? `${out.length} sample(s) ready. Skipped ${skipped.join(", ")} — their recording isn't loaded on this phone.`
+          : `${out.length} sample(s) ready.`,
+      );
     } catch (e) {
-      if ((e as Error).name !== "AbortError")
-        notify(`Share failed: ${(e as Error).message}. Use the download buttons instead.`);
+      notify((e as Error).message);
+    } finally {
+      setBusy(null);
     }
-  };
-  const download = (f: RenderedFile) => {
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(f.blob);
-    a.download = f.name;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   };
 
   const runChecks = async () => {
@@ -176,46 +176,39 @@ export function ExportView() {
         </button>
         {files.length > 0 && (
           <div className="space-y-2">
-            {canShare && (
-              <button className="btn btn-primary w-full" onClick={share}>
-                <Share2 className="size-4" /> Save to Files / AirDrop ({files.length})
-              </button>
-            )}
-            <ul className="space-y-1">
-              {files.map((f) => (
-                <li
-                  key={f.name}
-                  className="flex items-center gap-2 rounded-md bg-background px-2 py-1.5"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-xs font-semibold">{f.name}</div>
-                    <div
-                      className={cn(
-                        "font-mono text-[10px]",
-                        f.clipped ? "text-rec" : "text-muted-foreground",
-                      )}
-                    >
-                      peak {dbfs(f.peak)}
-                      {f.clipped ? " · too loud (clipped)" : ""} · {(f.blob.size / 1e6).toFixed(1)}{" "}
-                      MB
-                    </div>
-                  </div>
-                  <button
-                    aria-label={`Download ${f.name}`}
-                    className="btn min-h-9 w-10 px-0"
-                    onClick={() => download(f)}
-                  >
-                    <Download className="size-4" />
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <FileList files={files} title={project.name} />
             <p className="text-[11px] text-muted-foreground">
               In LUNA or Pro Tools: set the session to {project.bpm} BPM and {ex.sampleRate / 1000}{" "}
               kHz, then drop every file at bar 1. They line up exactly.
             </p>
           </div>
         )}
+      </section>
+
+      <section className="panel space-y-3" aria-label="Pad samples">
+        <div className="eyebrow">Pad samples</div>
+        <p className="text-[11px] text-muted-foreground">
+          Every pad with a sound as its own WAV — no beat or timeline needed. Load them into your
+          DAW's sampler or drop them on a track and keep working on the computer.
+        </p>
+        <Segmented
+          value={padMode}
+          onChange={setPadMode}
+          options={[
+            { value: "pad", label: "As they play on the pads" },
+            { value: "original", label: "Original cuts" },
+          ]}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          {padMode === "pad"
+            ? `With each pad's stretch / fit to ${project.bpm} BPM, pitch, reverse and fades — at full level and centred, so you mix them in the DAW.`
+            : "Exactly what you cut from the recording, nothing changed (only a 2 ms fade at each edge so it doesn't click)."}{" "}
+          {padCount} pad{padCount === 1 ? "" : "s"} · 24-bit · {ex.sampleRate / 1000} kHz.
+        </p>
+        <button className="btn btn-primary h-12 w-full" onClick={renderPads} disabled={!!busy || !padCount}>
+          {busy ?? (padCount ? `Export ${padCount} pad sample${padCount === 1 ? "" : "s"}` : "No pads have a sound yet")}
+        </button>
+        {padFiles.length > 0 && <FileList files={padFiles} title={`${project.name} pads`} />}
       </section>
 
       <section className="panel space-y-3">
@@ -298,6 +291,53 @@ export function ExportView() {
           </>
         )}
       </section>
+    </div>
+  );
+}
+
+/** Rendered WAVs: save them all at once (Files / AirDrop) or download one by one. */
+function FileList({ files, title }: { files: RenderedFile[]; title: string }) {
+  const { notify } = useFrost();
+  const asFiles = () => files.map((f) => new File([f.blob], f.name, { type: "audio/wav" }));
+  const canShare =
+    typeof navigator !== "undefined" && !!navigator.canShare && files.length > 0 && navigator.canShare({ files: asFiles() });
+  const share = async () => {
+    try {
+      await navigator.share({ files: asFiles(), title });
+    } catch (e) {
+      if ((e as Error).name !== "AbortError") notify(`Share failed: ${(e as Error).message}. Use the download buttons instead.`);
+    }
+  };
+  const download = (f: RenderedFile) => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(f.blob);
+    a.download = f.name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  };
+  return (
+    <div className="space-y-2">
+      {canShare && (
+        <button className="btn btn-primary w-full" onClick={share}>
+          <Share2 className="size-4" /> Save to Files / AirDrop ({files.length})
+        </button>
+      )}
+      <ul className="space-y-1">
+        {files.map((f) => (
+          <li key={f.name} className="flex items-center gap-2 rounded-md bg-background px-2 py-1.5">
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-xs font-semibold">{f.name}</div>
+              <div className={cn("font-mono text-[10px]", f.clipped ? "text-rec" : "text-muted-foreground")}>
+                peak {dbfs(f.peak)}
+                {f.clipped ? " · too loud (clipped)" : ""} · {(f.blob.size / 1e6).toFixed(1)} MB
+              </div>
+            </div>
+            <button aria-label={`Download ${f.name}`} className="btn min-h-9 w-10 px-0" onClick={() => download(f)}>
+              <Download className="size-4" />
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
