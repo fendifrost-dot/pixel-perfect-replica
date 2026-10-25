@@ -10,6 +10,7 @@ import { findDrum, kitSourceId, KITS } from "./kits";
 import {
   BANKS,
   type Bank,
+  MAX_PATTERN_BARS,
   type Pad,
   type Pattern,
   type Project,
@@ -401,14 +402,18 @@ export const kitCatalog = () =>
     drums: k.drums.map((d) => ({ id: d.id, name: d.name })),
   }));
 
-/** Pattern lengths: 1–4 bars for loops, longer for a whole song on the Timeline. */
-export const PATTERN_BARS = [1, 2, 4, 8, 16, 32, 64, 128] as const;
+/** Common pattern lengths (any whole number of bars up to MAX_PATTERN_BARS works). */
+export const PATTERN_BARS = [1, 2, 4, 8, 16, 32, 64, 128, 256] as const;
 
 const barsToSteps = (bars: number) => {
-  if (!(PATTERN_BARS as readonly number[]).includes(bars))
-    throw new OpsError(`Pattern length is ${PATTERN_BARS.join(", ")} bars.`);
+  if (!(Number.isInteger(bars) && bars >= 1 && bars <= MAX_PATTERN_BARS))
+    throw new OpsError(`Pattern length is 1–${MAX_PATTERN_BARS} whole bars.`);
   return bars * 16;
 };
+
+/** Steps a pattern needs so a hit starting at `step` is inside it (whole bars, capped). */
+export const stepsToFit = (step: number) =>
+  Math.min(MAX_PATTERN_BARS * 16, Math.ceil((step + 0.5) / 16) * 16);
 
 export function addPattern(
   p: Project,
@@ -501,15 +506,16 @@ export interface HitInput {
 export function addHits(p: Project, patternId: string | undefined, hits: HitInput[]): Project {
   const pt = patternOf(p, patternId);
   const notes = [...pt.notes];
+  let grownTo = pt.lengthSteps;
   for (const h of hits) {
     const pad = padOf(p, h.pad);
     // Whole steps as before; a half step (1/32) is placed exactly, like the Timeline does.
     const step = Math.round(h.step * 2) / 2;
     const exact = step % 1 !== 0;
-    if (!(step >= 0 && step < pt.lengthSteps))
-      throw new OpsError(
-        `Step ${h.step} is outside this ${pt.lengthSteps / 16}-bar pattern (0–${pt.lengthSteps - 1}).`,
-      );
+    // A hit past the end makes the pattern longer (like the Timeline), up to the maximum.
+    if (!(step >= 0 && step < MAX_PATTERN_BARS * 16))
+      throw new OpsError(`Step ${h.step} is outside 0–${MAX_PATTERN_BARS * 16 - 1} (${MAX_PATTERN_BARS} bars).`);
+    grownTo = Math.max(grownTo, stepsToFit(step));
     const velocity =
       h.velocity == null ? pad.velocity : Math.round(Math.min(127, Math.max(1, h.velocity)));
     const offset = h.offset == null ? 0 : Math.min(0.49, Math.max(-0.5, h.offset));
@@ -527,7 +533,7 @@ export function addHits(p: Project, patternId: string | undefined, hits: HitInpu
     if (i >= 0) notes[i] = note;
     else notes.push(note);
   }
-  return mapPattern(p, pt.id, (x) => ({ ...x, notes }));
+  return mapPattern(p, pt.id, (x) => ({ ...x, lengthSteps: grownTo, notes }));
 }
 
 /** Remove hits of `pad` at `steps` (or all of that pad's hits when steps is omitted). */
@@ -601,8 +607,8 @@ export function songToTimeline(p: Project, name = "Full song"): { project: Proje
     .filter((x): x is Pattern => !!x);
   if (!sections.length) throw new OpsError("The song is empty — add patterns to it first.");
   const total = sections.reduce((n, x) => n + x.lengthSteps, 0);
-  const bars = PATTERN_BARS.find((b) => b * 16 >= total);
-  if (!bars) throw new OpsError(`The song is longer than ${PATTERN_BARS.at(-1)} bars.`);
+  const bars = Math.ceil(total / 16);
+  if (bars > MAX_PATTERN_BARS) throw new OpsError(`The song is longer than ${MAX_PATTERN_BARS} bars.`);
   const notes: Pattern["notes"] = [];
   let at = 0;
   for (const pt of sections) {

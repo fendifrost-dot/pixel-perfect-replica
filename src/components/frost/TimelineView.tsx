@@ -5,8 +5,8 @@ import { audioStore } from "@/lib/frost/audioStore";
 import { playbackService } from "@/lib/frost/engine";
 import { waveColumns } from "@/lib/frost/analysis";
 import { effectiveStep, playPlan, stepDur } from "@/lib/frost/timing";
-import { PATTERN_BARS, songToTimeline } from "@/lib/frost/ops";
-import type { Lane, NoteEvent, Pad, Pattern, Slice } from "@/lib/frost/types";
+import { PATTERN_BARS, songToTimeline, stepsToFit } from "@/lib/frost/ops";
+import { MAX_PATTERN_BARS, type Lane, type NoteEvent, type Pad, type Pattern, type Slice } from "@/lib/frost/types";
 import { Segmented } from "./controls";
 import { cn } from "@/lib/utils";
 
@@ -145,11 +145,26 @@ export function TimelineView({ pat }: { pat: Pattern }) {
   const [view, setView] = useState({ left: 0, width: 1, total: 1 });
   const ppsRef = useRef(pps);
   ppsRef.current = pps;
+  /** The song's length (where Play stops / loops). */
   const L = pat.lengthSteps;
+  /** The grid always runs to the maximum, so a hit can go anywhere; the song grows to reach it. */
+  const W = MAX_PATTERN_BARS * 16;
   const sd = stepDur(project.bpm);
 
   const upd = (fn: (p: Pattern) => Pattern, history = true) =>
-    commit((p) => ({ ...p, patterns: p.patterns.map((x) => (x.id === pat.id ? fn(x) : x)) }), { history });
+    commit(
+      (p) => ({
+        ...p,
+        patterns: p.patterns.map((x) => {
+          if (x.id !== pat.id) return x;
+          const y = fn(x);
+          // A hit placed past the end makes the song longer (never shorter).
+          const need = y.notes.reduce((m, n) => Math.max(m, stepsToFit(n.step)), 0);
+          return need > y.lengthSteps ? { ...y, lengthSteps: need } : y;
+        }),
+      }),
+      { history },
+    );
   const setNote = (id: string, patch: Omit<Partial<NoteEvent>, "length"> & { length?: number | undefined }) =>
     upd((x) => ({
       ...x,
@@ -197,7 +212,8 @@ export function TimelineView({ pat }: { pat: Pattern }) {
       const natural = naturalSteps(pad);
       let len = n.length ?? natural;
       if (!n.length && pad && pad.mode !== "oneshot") len = (list.find((x) => x.at > at)?.at ?? L) - at;
-      out.set(n.id, { at, len: Math.min(len, L - at), natural });
+      // A one-shot rings past the song's end; holds and loops stop there.
+      out.set(n.id, { at, len: Math.min(len, (pad?.mode === "oneshot" || n.length ? W : L) - at), natural });
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -322,12 +338,12 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     cancelHold();
     const n = pat.notes.find((x) => x.id === d.id)!;
     if (d.kind === "move") {
-      const step = Math.min(L - MIN_LEN, Math.max(0, snapTo(d.step0 + dx / pps)));
+      const step = Math.min(W - MIN_LEN, Math.max(0, snapTo(d.step0 + dx / pps)));
       const row = Math.min(rowIds.length - 1, Math.max(0, d.row0 + Math.round(dy / ROW_H)));
       setDraft({ id: d.id, step, length: n.length, padId: rowIds[row] ?? n.padId });
     } else {
       const pad = padOf(n.padId);
-      const cap = pad?.mode === "oneshot" ? Math.min(blocks.get(d.id)!.natural, L - d.step0) : L - d.step0;
+      const cap = pad?.mode === "oneshot" ? Math.min(blocks.get(d.id)!.natural, W - d.step0) : W - d.step0;
       const len = Math.min(cap, Math.max(MIN_LEN, snapTo(d.len0 + dx / pps)));
       // Stretching a one-shot back to its full length clears the cut.
       setDraft({ id: d.id, step: d.step0, length: pad?.mode === "oneshot" && len >= cap - 1e-6 && cap >= blocks.get(d.id)!.natural - 1e-6 ? undefined : len, padId: n.padId });
@@ -358,7 +374,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     }
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const step = Math.floor((e.clientX - r.left) / pps / snap) * snap;
-    if (step < 0 || step >= L) return;
+    if (step < 0 || step >= W) return;
     const pad = padOf(padId);
     if (!sliceOf(pad)) return notify(`Pad ${padId} has no sound yet.`);
     const id = uid();
@@ -369,7 +385,11 @@ export function TimelineView({ pat }: { pat: Pattern }) {
 
   const note = pat.notes.find((n) => n.id === sel);
   const noteBlock = note && blocks.get(note.id);
-  const fmtPos = (s: number) => `bar ${Math.floor(s / 16) + 1} · beat ${Math.floor((s % 16) / 4) + 1}${s % 4 ? ` +${(s % 4) / 4}` : ""}`;
+  const clock = (step: number) => {
+    const t = step * sd;
+    return `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+  };
+  const fmtPos = (s: number) => `bar ${Math.floor(s / 16) + 1} · beat ${Math.floor((s % 16) / 4) + 1}${s % 4 ? ` +${(s % 4) / 4}` : ""} · ${clock(s)}`;
   const songBlocks = project.arrangement.length;
 
   const gridBg = {
@@ -392,7 +412,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
         upd((x) => ({ ...x, lengthSteps: steps, notes: x.notes.filter((n) => n.step < steps) }));
       }}
     >
-      {PATTERN_BARS.map((b) => (
+      {[...new Set([...PATTERN_BARS, L / 16])].sort((a, b) => a - b).map((b) => (
         <option key={b} value={b}>
           {b} bar{b > 1 ? "s" : ""}
         </option>
@@ -427,18 +447,22 @@ export function TimelineView({ pat }: { pat: Pattern }) {
       style={{ touchAction: "pan-x pan-y", WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none" }}
       onScroll={readView}
     >
-      <div className="relative" style={{ width: LABEL_W + L * pps }}>
+      <div className="relative" style={{ width: LABEL_W + W * pps }}>
         {/* ruler */}
         <div className="sticky top-0 z-30 flex h-6 border-b bg-background">
           <div className="sticky left-0 z-20 shrink-0 border-r bg-background" style={{ width: LABEL_W }} />
-          <div className="relative" style={{ width: L * pps }}>
-            {Array.from({ length: L / 16 }, (_, b) =>
-              16 * pps >= 28 || b % Math.ceil(28 / (16 * pps)) === 0 ? (
-                <span key={b} className="absolute top-1 font-mono text-[10px] text-muted-foreground" style={{ left: b * 16 * pps + 3 }}>
+          <div className="relative" style={{ width: W * pps }}>
+            {Array.from({ length: W / 16 }, (_, b) =>
+              b !== L / 16 && (16 * pps >= 28 || b % Math.ceil(28 / (16 * pps)) === 0) ? (
+                <span key={b} className="absolute top-1 whitespace-nowrap font-mono text-[10px] text-muted-foreground" style={{ left: b * 16 * pps + 3 }}>
                   {b + 1}
+                  {16 * pps >= 72 && <span className="opacity-60"> · {clock(b * 16)}</span>}
                 </span>
               ) : null,
             )}
+            <span className="absolute top-0 bottom-0 z-10 whitespace-nowrap border-l-2 border-primary bg-background pl-1 pr-1 font-mono text-[10px] leading-6 text-primary" style={{ left: L * pps }}>
+              End · {clock(L)}
+            </span>
           </div>
         </div>
 
@@ -463,10 +487,10 @@ export function TimelineView({ pat }: { pat: Pattern }) {
                   </button>
                 </div>
               </div>
-              <div aria-label={`Timeline row ${padId}`} className="relative" style={{ width: L * pps, ...gridBg }} onClick={(e) => place(e, padId)}
+              <div aria-label={`Timeline row ${padId}`} className="relative" style={{ width: W * pps, ...gridBg }} onClick={(e) => place(e, padId)}
                 onPointerDown={(e) => {
                   const r = e.currentTarget.getBoundingClientRect();
-                  const step = Math.min(L - MIN_LEN, Math.max(0, Math.floor((e.clientX - r.left) / pps / snap) * snap));
+                  const step = Math.min(W - MIN_LEN, Math.max(0, Math.floor((e.clientX - r.left) / pps / snap) * snap));
                   startHold(e, () => setMenu({ x: e.clientX, y: e.clientY, padId, step }));
                 }}
                 onPointerMove={movedHold}
@@ -478,7 +502,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
                   const b = blocks.get(n.id);
                   if (!b) return null;
                   const at = draft?.id === n.id ? draft.step : b.at;
-                  const len = draft?.id === n.id ? Math.min(draft.length ?? (pad?.mode === "oneshot" ? b.natural : b.len), L - at) : b.len;
+                  const len = draft?.id === n.id ? Math.min(draft.length ?? (pad?.mode === "oneshot" ? b.natural : b.len), W - at) : b.len;
                   const on = sel === n.id;
                   return (
                     <div
@@ -516,7 +540,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
                     style={{
                       left:
                         ((draft?.id === note.id ? draft.step : noteBlock.at) +
-                          (draft?.id === note.id ? Math.min(draft.length ?? noteBlock.natural, L) : noteBlock.len)) *
+                          (draft?.id === note.id ? Math.min(draft.length ?? noteBlock.natural, W) : noteBlock.len)) *
                         pps,
                     }}
                     onClick={(e) => e.stopPropagation()}
@@ -530,6 +554,8 @@ export function TimelineView({ pat }: { pat: Pattern }) {
           );
         })}
 
+        {/* Past the song's end: still open for hits — placing one there makes the song longer. */}
+        <div className="pointer-events-none absolute top-6 bottom-0 z-[5] border-l-2 border-primary bg-background/40" style={{ left: LABEL_W + L * pps, width: (W - L) * pps }} />
         {head >= 0 && <div className="pointer-events-none absolute top-0 bottom-0 z-10 w-0.5 bg-foreground" style={{ left: LABEL_W + head * pps }} />}
       </div>
     </div>
@@ -560,6 +586,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
         }}
         onPointerMove={(e) => e.buttons && flyTo(e)}
       >
+        <span className="absolute top-0 bottom-0 left-0 bg-primary/10" style={{ width: `${(L / W) * 100}%` }} />
         {pat.notes.map((n) => {
           const b = blocks.get(n.id);
           const row = rowIds.indexOf(n.padId);
@@ -568,14 +595,17 @@ export function TimelineView({ pat }: { pat: Pattern }) {
             <span
               key={n.id}
               className="absolute w-px bg-primary/70"
-              style={{ left: `${(b.at / L) * 100}%`, top: `${(row / Math.max(1, rowIds.length)) * 100}%`, height: `${100 / Math.max(1, rowIds.length)}%` }}
+              style={{ left: `${(b.at / W) * 100}%`, top: `${(row / Math.max(1, rowIds.length)) * 100}%`, height: `${100 / Math.max(1, rowIds.length)}%` }}
             />
           );
         })}
-        {head >= 0 && <span className="absolute top-0 bottom-0 w-0.5 bg-foreground" style={{ left: `${(head / L) * 100}%` }} />}
+        {head >= 0 && <span className="absolute top-0 bottom-0 w-0.5 bg-foreground" style={{ left: `${(head / W) * 100}%` }} />}
         <span className="pointer-events-none absolute top-0 bottom-0 rounded-sm border-2 border-foreground/80 bg-foreground/10" style={{ left: `${winL * 100}%`, width: `${winW * 100}%` }} />
       </div>
-      <button aria-label="Jump to the end" className="btn min-h-8 w-9 shrink-0 px-0" onClick={() => scroller.current?.scrollTo({ left: gridPx })}>
+      <button aria-label="Jump to the end of the song" className="btn min-h-8 w-9 shrink-0 px-0" onClick={() => {
+          const el = scroller.current;
+          if (el) el.scrollTo({ left: Math.max(0, L * pps - (el.clientWidth - LABEL_W) + 48) });
+        }}>
         <SkipForward className="size-4" />
       </button>
       <button aria-label="Fit the whole beat on screen" className="btn min-h-8 shrink-0 px-2 text-xs" onClick={fit}>
@@ -632,7 +662,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
             {menuItem("Duplicate after", CopyPlus, () => {
               const b = blocks.get(menuNote.id);
               const at = b ? b.at + Math.max(MIN_LEN, b.len) : L;
-              if (at >= L) return notify("No room after this hit — make the timeline longer.");
+              if (at >= W) return notify(`That's past the ${MAX_PATTERN_BARS}-bar limit.`);
               const id = uid();
               upd((x) => ({ ...x, notes: [...x.notes, { ...menuNote, id, step: at, offset: 0, exact: true }] }));
               setSel(id);
@@ -663,7 +693,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
             className="btn min-h-9 shrink-0 text-xs"
             onClick={() => {
               const at = noteBlock.at + Math.max(MIN_LEN, noteBlock.len);
-              if (at >= L) return notify("No room after this hit — make the timeline longer.");
+              if (at >= W) return notify(`That's past the ${MAX_PATTERN_BARS}-bar limit.`);
               const id = uid();
               upd((x) => ({ ...x, notes: [...x.notes, { ...note, id, step: at, offset: 0, exact: true }] }));
               setSel(id);
