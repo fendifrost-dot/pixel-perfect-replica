@@ -95,3 +95,22 @@ export interface RenderedFile {
 export interface RenderService {
   renderWav(p: Project, onProgress?: (msg: string) => void): Promise<RenderedFile[]>;
 }
+
+/** One microphone take, in the playback clock (so it lines up with the beat). */
+export interface MicTake {
+  samples: Float32Array;
+  sampleRate: number;
+  /** AudioContext time of the first sample. */
+  startTime: number;
+}
+
+export interface MicService {
+  /** Whether this browser can record from the microphone at all. */
+  availability(): Availability;
+  /** Ask for the mic (first time: the permission prompt) and start recording. Rejects with a readable reason. */
+  start(): Promise<void>;
+  /** Input level now, 0..1, for a meter. */
+  level(): number;
+  /** Stop and return what was recorded (null if nothing was). */
+  stop(): MicTake | null;
+}

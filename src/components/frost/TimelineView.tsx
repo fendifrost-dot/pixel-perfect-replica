@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { BoxSelect, ClipboardPaste, Copy, CopyPlus, Maximize2, Minimize2, Minus, Play, Plus, Repeat, Scissors, SkipBack, SkipForward, Square, Trash2 } from "lucide-react";
+import { BoxSelect, ClipboardPaste, Copy, CopyPlus, Mic, Maximize2, Minimize2, Minus, Play, Plus, Repeat, Scissors, SkipBack, SkipForward, Square, Trash2 } from "lucide-react";
 import { useFrost, uid } from "@/lib/frost/store";
 import { audioStore } from "@/lib/frost/audioStore";
 import { playbackService } from "@/lib/frost/engine";
@@ -8,6 +8,11 @@ import { effectiveStep, playPlan, stepDur } from "@/lib/frost/timing";
 import { PATTERN_BARS, songToTimeline, stepsToFit } from "@/lib/frost/ops";
 import { MAX_PATTERN_BARS, type Lane, type NoteEvent, type Pad, type Pattern, type Slice } from "@/lib/frost/types";
 import { Segmented } from "./controls";
+import { HumRecorder } from "./HumRecorder";
+import { INSTRUMENTS, parseKitSourceId } from "@/lib/frost/kits";
+import { assignDrum, pruneKitSources } from "@/lib/frost/kitActions";
+import { kitService } from "@/lib/frost/engine";
+import { noteName } from "@/lib/frost/hum";
 import { cn } from "@/lib/utils";
 
 /** Grid choices in steps (16ths). 1/32 = half a step — also the shortest a hit can be. */
@@ -105,6 +110,7 @@ type Drag = {
 export function TimelineView({ pat }: { pat: Pattern }) {
   const { project, commit, currentStep, playing, togglePlay, repeat, setRepeat, notify, setLoopMode, audioVersion } = useFrost();
   const [clip, setClip] = useState<ClipItem[] | null>(clipboard);
+  const [humOpen, setHumOpen] = useState(false);
   /** Select mode: tap hits or drag a box to pick several, then move / copy / repeat them together. */
   const [selectMode, setSelectMode] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -232,9 +238,10 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pat, project.quantize, project.pads, project.slices, project.bpm]);
 
-  const hear = (padId: string) => {
-    const pad = padOf(padId);
-    if (!pad) return;
+  const hear = (padId: string, pitch = 0) => {
+    const base = padOf(padId);
+    if (!base) return;
+    const pad = pitch ? { ...base, pitch: base.pitch + pitch } : base;
     playbackService.stopAll();
     const go = () => playbackService.triggerPad(pad, sliceOf(pad), pad.velocity, project.bpm);
     if (playbackService.isReady()) go();
@@ -405,7 +412,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     if (!d.moved) {
       const n = pat.notes.find((x) => x.id === d.id);
       setSel(sel === d.id ? null : d.id);
-      if (n && sel !== d.id) hear(n.padId);
+      if (n && sel !== d.id) hear(n.padId, n.pitch);
       return;
     }
     if (draft) {
@@ -884,6 +891,47 @@ export function TimelineView({ pat }: { pat: Pattern }) {
           {!full && <div className="eyebrow mb-1">Length</div>}
           <Segmented value={note.length ?? 0} onChange={(v) => setNote(note.id, { length: v === 0 ? undefined : v })} options={LENGTHS} />
         </div>
+        {(() => {
+          const pad = padOf(note.padId);
+          const src = project.slices.find((x) => x.id === pad?.sliceId)?.sourceId;
+          const k = src ? parseKitSourceId(src) : null;
+          const inst = k?.kitId === INSTRUMENTS.id ? INSTRUMENTS.drums.find((d) => d.id === k.drumId) : undefined;
+          const pitch = note.pitch ?? 0;
+          const setPitch = (v: number) => {
+            const next = Math.max(-48, Math.min(48, v));
+            setNote(note.id, { pitch: next || undefined } as Partial<NoteEvent>);
+            hear(note.padId, next);
+          };
+          return (
+            <>
+              <div className={cn("flex items-center gap-1 text-xs", full && "shrink-0")}>
+                <span className="mr-1 text-muted-foreground">Pitch</span>
+                <button aria-label="Pitch down" className="btn min-h-9 w-9 px-0" onClick={() => setPitch(pitch - 1)}>−</button>
+                <span className="w-12 text-center font-mono">{inst ? noteName((inst.rootMidi ?? 36) + (pad?.pitch ?? 0) + pitch) : `${pitch > 0 ? "+" : ""}${pitch} st`}</span>
+                <button aria-label="Pitch up" className="btn min-h-9 w-9 px-0" onClick={() => setPitch(pitch + 1)}>+</button>
+              </div>
+              {inst && pad && (
+                <div className={cn("flex gap-1 overflow-x-auto", full && "shrink-0")} aria-label="Instrument">
+                  {INSTRUMENTS.drums.map((d) => (
+                    <button
+                      key={d.id}
+                      className={cn("btn min-h-9 shrink-0 px-2 text-xs", d.id === inst.id && "btn-on")}
+                      onClick={() => {
+                        const loaded = kitService.loadDrum(INSTRUMENTS.id, d.id);
+                        if (!loaded) return;
+                        // same pad, new sound: every hit (and its pitch) stays where it is
+                        commit((p) => pruneKitSources(assignDrum(p, pad.id, loaded, uid())));
+                        setTimeout(() => hear(pad.id, pitch), 30);
+                      }}
+                    >
+                      {d.short}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          );
+        })()}
         <label className={cn("flex items-center gap-3 text-xs", full && "w-48 shrink-0 gap-2")}>
           <span className="shrink-0 text-muted-foreground">{full ? "Vel" : "Velocity"}</span>
           <input
@@ -899,7 +947,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
       </section>
     ) : (
       <p className="px-1 text-[11px] text-muted-foreground">
-        Select (box icon) to pick several hits, drag them together, copy them or repeat them · hold a hit to copy, cut or delete it · hold empty grid to paste · pinch to zoom · drag empty grid to scroll · drag the strip below the grid to jump around · tap the grid to place a hit · drag a hit to move it (up or down to change pads) · tap it, then drag the white handle to shorten it, down to 1/32. Loop pads repeat to fill a longer hit.
+        Mic: hum a bassline or melody (or beatbox drums) and pick the instrument · Select (box icon) to pick several hits, drag them together, copy them or repeat them · hold a hit to copy, cut or delete it · hold empty grid to paste · pinch to zoom · drag empty grid to scroll · drag the strip below the grid to jump around · tap the grid to place a hit · drag a hit to move it (up or down to change pads) · tap it, then drag the white handle to shorten it, down to 1/32. Loop pads repeat to fill a longer hit.
       </p>
     );
 
@@ -947,6 +995,9 @@ export function TimelineView({ pat }: { pat: Pattern }) {
           >
             <Repeat className="size-4" />
           </button>
+          <button aria-label="Record a sound — hum or beatbox" title="Hum a line or beatbox drums" className="btn min-h-9 w-9 shrink-0 px-0" onClick={() => setHumOpen(true)}>
+            <Mic className="size-4 text-rec" />
+          </button>
           <span className="shrink-0 font-mono text-xs text-muted-foreground">{project.bpm} BPM</span>
           <button aria-label="Select several hits" aria-pressed={selectMode} title="Select several hits" className={cn("btn min-h-9 w-9 shrink-0 px-0", selectMode && "btn-on")} onClick={() => (selectMode ? exitSelect() : (setSelectMode(true), setSel(null)))}>
             <BoxSelect className="size-4" />
@@ -961,6 +1012,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
         {overview}
         <div className="shrink-0">{hitPanel}</div>
         {menuEl}
+        {humOpen && <HumRecorder pat={pat} snap={snap} onClose={() => setHumOpen(false)} />}
       </div>
     );
 
@@ -970,6 +1022,9 @@ export function TimelineView({ pat }: { pat: Pattern }) {
         <span className="eyebrow w-full">Timeline / snap grid</span>
         <Segmented className="basis-full" value={snap} onChange={(v) => setSnap(v)} options={SNAPS} />
         <div className="flex-1" />
+        <button aria-label="Record a sound — hum or beatbox" title="Hum a line or beatbox drums" className="btn min-h-9 w-9 shrink-0 px-0" onClick={() => setHumOpen(true)}>
+            <Mic className="size-4 text-rec" />
+          </button>
         <button aria-label="Select several hits" aria-pressed={selectMode} title="Select several hits" className={cn("btn min-h-9 w-9 shrink-0 px-0", selectMode && "btn-on")} onClick={() => (selectMode ? exitSelect() : (setSelectMode(true), setSel(null)))}>
             <BoxSelect className="size-4" />
           </button>
@@ -989,6 +1044,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
       {addRow}
       {hitPanel}
       {menuEl}
+      {humOpen && <HumRecorder pat={pat} snap={snap} onClose={() => setHumOpen(false)} />}
     </div>
   );
 }

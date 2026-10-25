@@ -458,7 +458,7 @@ export const tools = [
     name: "add_hits",
     title: "Add hits to a pattern",
     description:
-      "Add hits to a pattern. step = 16th note from the pattern start (0-based; 0–15 per bar, beat n starts at step 4n). velocity 1–127 (default the pad's), offset −0.5–0.49 of a step for played feel (heard when quantize is off). step may be a half step (x.5) for a 1/32 position; a step past the pattern's end makes the pattern longer (up to 256 bars). length = steps the hit sounds (0.5 = 1/32 note, 16 = a bar; loop pads repeat to fill it); omit for the pad's natural length. A hit on the same pad+step is replaced.",
+      "Add hits to a pattern. step = 16th note from the pattern start (0-based; 0–15 per bar, beat n starts at step 4n). velocity 1–127 (default the pad's), offset −0.5–0.49 of a step for played feel (heard when quantize is off). step may be a half step (x.5) for a 1/32 position; a step past the pattern's end makes the pattern longer (up to 256 bars). length = steps the hit sounds (0.5 = 1/32 note, 16 = a bar; loop pads repeat to fill it); omit for the pad's natural length. pitch = semitones on top of the pad for this hit (for the Instruments kit — 808 bass, sub, bass guitar, synth bass, keys, pluck — this plays a melody/bassline from one pad; add one with add_kit_drum kit=instruments). A hit on the same pad+step is replaced.",
     inputSchema: {
       project: PROJECT,
       pattern: PATTERN,
@@ -470,6 +470,7 @@ export const tools = [
             velocity: z.number().optional(),
             offset: z.number().optional(),
             length: z.number().optional(),
+            pitch: z.number().optional(),
           }),
         )
         .min(1)

@@ -9,7 +9,8 @@ describe("built-in kits", () => {
       for (const d of kit.drums) {
         const x = d.render(sr);
         expect(x.length / sr, `${kit.id}/${d.id} length`).toBeGreaterThan(0.08);
-        expect(x.length / sr, `${kit.id}/${d.id} length`).toBeLessThanOrEqual(1.6);
+        // drums are short hits; pitched instruments sustain so a held bass note can ring
+        expect(x.length / sr, `${kit.id}/${d.id} length`).toBeLessThanOrEqual(d.rootMidi != null ? 3 : 1.6);
         let peak = 0,
           energy = 0;
         for (const v of x) {

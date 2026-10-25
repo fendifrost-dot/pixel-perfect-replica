@@ -80,6 +80,8 @@ export interface NoteEvent {
   exact?: boolean;
   /** How long the hit sounds, in steps (0.5 = a 1/32 note). Absent = the pad's natural length. */
   length?: number;
+  /** Semitones this hit is transposed on top of the pad (a hummed melody on one instrument pad). */
+  pitch?: number;
 }
 
 export interface Lane {
