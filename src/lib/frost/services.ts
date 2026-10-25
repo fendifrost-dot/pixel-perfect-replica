@@ -94,6 +94,11 @@ export interface RenderedFile {
 
 export interface RenderService {
   renderWav(p: Project, onProgress?: (msg: string) => void): Promise<RenderedFile[]>;
+  /**
+   * One WAV per pad with a sound, no beat needed. "pad" = as a tap plays it (fit, pitch, reverse,
+   * fades; full level, centred); "original" = the untouched cut. `skipped` = pads not loaded here.
+   */
+  renderPadSamples(p: Project, mode: "pad" | "original", onProgress?: (msg: string) => void): Promise<{ files: RenderedFile[]; skipped: string[] }>;
 }
 
 /** One microphone take, in the playback clock (so it lines up with the beat). */
