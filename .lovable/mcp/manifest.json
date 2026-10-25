@@ -487,7 +487,7 @@
       {
         "name": "set_pad",
         "title": "Change a pad",
-        "description": "Change a pad. fit: off | stretch (keeps pitch) | repitch (classic, pitch follows) to lengthBeats at the project BPM. volume 0–1, pan −1–1, pitch −24–24 st, velocity 1–127, plays whole|held|loop, chokeGroup 0–4 (0 = none), reverse, fadeInMs, fadeOutMs, chopName (rename its chop), empty=true clears the pad.",
+        "description": "Change a pad. fit: off | stretch (keeps pitch) | repitch (classic, pitch follows) to lengthBeats at the project BPM. volume 0–1, pan −1–1, pitch −24–24 st, velocity 1–127, plays whole|held|loop, chokeGroup 0–4 (0 = none), reverse, fadeInMs, fadeOutMs, chopName (rename its chop), chopStart/chopEnd (seconds into the recording) trim or extend its chop — a fitted pad keeps its speed (its lengthBeats scales with the chop) unless lengthBeats is also given, empty=true clears the pad.",
         "inputSchema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -550,6 +550,12 @@
             "chopName": {
               "type": "string"
             },
+            "chopStart": {
+              "type": "number"
+            },
+            "chopEnd": {
+              "type": "number"
+            },
             "empty": {
               "type": "boolean"
             }
@@ -565,7 +571,7 @@
       {
         "name": "add_pattern",
         "title": "Add a pattern",
-        "description": "Add a pattern (1, 2 or 4 bars), empty or copied from another; it becomes the current pattern unless makeCurrent=false.",
+        "description": "Add a pattern (1, 2 or 4 bars for a loop; 8, 16, 32, 64 or 128 for a whole song on the Timeline), empty or copied from another; it becomes the current pattern unless makeCurrent=false.",
         "inputSchema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -600,7 +606,7 @@
       {
         "name": "edit_pattern",
         "title": "Edit a pattern",
-        "description": "Rename a pattern, set its length (1/2/4 bars; hits past the end are dropped), clear all its hits, or make it current.",
+        "description": "Rename a pattern, set its length (1/2/4/8/16/32/64/128 bars; hits past the end are dropped), clear all its hits, or make it current.",
         "inputSchema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -667,7 +673,7 @@
       {
         "name": "add_hits",
         "title": "Add hits to a pattern",
-        "description": "Add hits to a pattern. step = 16th note from the pattern start (0-based; 0–15 per bar, beat n starts at step 4n). velocity 1–127 (default the pad's), offset −0.5–0.49 of a step for played feel (heard when quantize is off). A hit on the same pad+step is replaced.",
+        "description": "Add hits to a pattern. step = 16th note from the pattern start (0-based; 0–15 per bar, beat n starts at step 4n). velocity 1–127 (default the pad's), offset −0.5–0.49 of a step for played feel (heard when quantize is off). step may be a half step (x.5) for a 1/32 position. length = steps the hit sounds (0.5 = 1/32 note, 16 = a bar; loop pads repeat to fill it); omit for the pad's natural length. A hit on the same pad+step is replaced.",
         "inputSchema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -694,14 +700,16 @@
                     "description": "Pad id, e.g. A1 … D16."
                   },
                   "step": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 9007199254740991
+                    "type": "number",
+                    "minimum": 0
                   },
                   "velocity": {
                     "type": "number"
                   },
                   "offset": {
+                    "type": "number"
+                  },
+                  "length": {
                     "type": "number"
                   }
                 },
@@ -715,6 +723,30 @@
           "required": [
             "project",
             "hits"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "song_to_timeline",
+        "title": "Lay the song out on the Timeline",
+        "description": "Copy the Song (patterns in order) into one long pattern (rounded up to 8/16/32/64/128 bars) so the whole track can be edited hit by hit on the Timeline. Muted lanes are left out. The new pattern becomes current; the original patterns and song are kept.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Project key (from list_projects) or exact project name."
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "project"
           ],
           "additionalProperties": false
         },
