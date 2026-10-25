@@ -6,6 +6,8 @@ import {
   patternSections,
   playPlan,
   recordPosition,
+  regionPattern,
+  soundingAt,
   songSections,
   stepDur,
 } from "./timing";
@@ -318,5 +320,49 @@ describe("pad sample export", () => {
     expect(padSampleName(p, pad, "Chop 12", "pad")).toBe("My_beat_A13_Chop_12_8beats_132bpm.wav");
     expect(padSampleName(p, pad, "Chop 12", "original")).toBe("My_beat_A13_Chop_12_original.wav");
     expect(padSampleName(p, { ...pad, lengthUnit: "off" }, "Kick", "pad")).toBe("My_beat_A13_Kick.wav");
+  });
+});
+
+describe("playing a section", () => {
+  it("cuts a section out of a pattern and finds long sounds to join part-way", () => {
+    const p = createDemoProject();
+    const pad = p.pads.find((x) => x.sliceId)!;
+    const slice = p.slices.find((x) => x.id === pad.sliceId)!;
+    // a long one-shot at step 0 (like a whole beat bounced from a DAW) plus two short hits
+    const longSlice = { ...slice, id: "long", start: 0, end: 30 };
+    const q = {
+      ...p,
+      quantize: "off" as const,
+      slices: [...p.slices, longSlice],
+      pads: p.pads.map((x) => (x.id === pad.id ? { ...x, sliceId: "long", lengthUnit: "off" as const, pitch: 0, mode: "oneshot" as const } : x)),
+      patterns: p.patterns.map((pt) =>
+        pt.id === p.currentPatternId
+          ? { ...pt, lengthSteps: 64, notes: [
+              { id: "bed", padId: pad.id, step: 0, velocity: 100, offset: 0 },
+              { id: "a", padId: "A2", step: 20, velocity: 100, offset: 0 },
+              { id: "b", padId: "A2", step: 40, velocity: 100, offset: 0 },
+            ] }
+          : pt,
+      ),
+    };
+    const pat = q.patterns.find((x) => x.id === q.currentPatternId)!;
+    const r = regionPattern(q, pat, 16, 32);
+    expect(r.lengthSteps).toBe(16);
+    expect(r.notes.map((n) => [n.id, n.step])).toEqual([["a", 4]]);
+    // the 30 s bed started at step 0 is still sounding at step 16 → join it 16 steps in
+    expect(soundingAt(q, pat, 16)).toEqual([{ note: pat.notes[0], skip: 16 }]);
+    expect(soundingAt(q, pat, 0)).toEqual([]);
+  });
+});
+
+describe("wav tempo tag", () => {
+  it("writes and reads back an ACID tempo chunk (also on an odd-length mono file)", () => {
+    const loop = encodeWav24([new Float32Array(48001).fill(0.1)], 48000, { bpm: 132, beats: 8 });
+    expect(decodeWav(loop.bytes).tempo).toMatchObject({ beats: 8, oneShot: false });
+    expect(decodeWav(loop.bytes).tempo!.bpm).toBeCloseTo(132);
+    expect(decodeWav(loop.bytes).channels[0].length).toBe(48001);
+    const hit = encodeWav24([new Float32Array(100), new Float32Array(100)], 48000, { bpm: 132, oneShot: true });
+    expect(decodeWav(hit.bytes).tempo).toMatchObject({ oneShot: true });
+    expect(decodeWav(encodeWav24([new Float32Array(10)], 48000).bytes).tempo).toBeUndefined();
   });
 });

@@ -47,11 +47,17 @@ export interface TransportService {
     mode: LoopMode,
     repeat?: () => boolean,
     onEnd?: () => void,
+    /**
+     * Pattern mode only: play just steps `from`–`to` of the current pattern (looping it with
+     * repeat). Long sounds that started earlier, like a whole beat, are joined part-way.
+     * `onStep` and `positionAt` still report positions in the whole pattern.
+     */
+    region?: { from: number; to: number },
   ): void;
   stop(): void;
   isRunning(): boolean;
   mode(): LoopMode;
-  /** Absolute position in steps at a context time (null when stopped). */
+  /** Absolute position in steps at a context time (null when stopped). With a region it counts from the region's start, unwrapped. */
   positionAt(time: number): number | null;
   /** Don't replay a just-recorded hit if it falls within `untilStep` (absolute). */
   suppress(noteId: string, untilStep: number): void;
@@ -98,7 +104,7 @@ export interface RenderedFile {
   frames: number;
   peak: number;
   clipped: number;
-  kind: "mix" | "stem";
+  kind: "mix" | "stem" | "midi";
 }
 
 export interface RenderService {
@@ -108,6 +114,8 @@ export interface RenderService {
    * fades; full level, centred); "original" = the untouched cut. `skipped` = pads not loaded here.
    */
   renderPadSamples(p: Project, mode: "pad" | "original", onProgress?: (msg: string) => void): Promise<{ files: RenderedFile[]; skipped: string[] }>;
+  /** A Hum session's layers (beat muted): one WAV each, their mix, and a MIDI file — all from the beat's bar 1. */
+  renderHumLayers(p: Project, onProgress?: (msg: string) => void): Promise<RenderedFile[]>;
 }
 
 /** One microphone take, in the playback clock (so it lines up with the beat). */

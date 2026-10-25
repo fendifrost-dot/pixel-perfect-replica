@@ -144,6 +144,8 @@ export function startVoice(
   when: number,
   stopAt?: number,
   stopFade?: number,
+  /** Start this many seconds into the hit (playback begun in the middle of a long sound). */
+  skip = 0,
 ): VoiceHandle {
   const src = ctx.createBufferSource();
   src.buffer = ps.buffer;
@@ -155,7 +157,9 @@ export function startVoice(
 
   const peak = pad.volume * (velocity / 127);
   const g = gain.gain;
-  const attack = Math.max(MIN_ATTACK, pad.attack);
+  // joining a sound part-way: just a click-guard fade, not the pad's own fade-in
+  const attack = skip > 0 ? MIN_ATTACK : Math.max(MIN_ATTACK, pad.attack);
+  const bufSkip = Math.max(0, skip) * ps.rate;
   g.setValueAtTime(0, when);
   g.linearRampToValueAtTime(peak, when + attack);
 
@@ -164,10 +168,11 @@ export function startVoice(
     src.loop = true;
     src.loopStart = ps.offset;
     src.loopEnd = ps.offset + ps.duration;
-    src.start(when, ps.offset);
+    src.start(when, ps.offset + (bufSkip % Math.max(1e-6, ps.duration)));
   } else {
-    src.start(when, ps.offset, ps.duration);
-    natural = when + ps.playDuration;
+    const left = Math.max(0.001, ps.duration - bufSkip);
+    src.start(when, ps.offset + Math.min(bufSkip, ps.duration - 0.001), left);
+    natural = when + Math.max(0.001, ps.playDuration - Math.max(0, skip));
   }
   const stopFadeSec = stopFade ?? Math.max(MIN_RELEASE, pad.release);
   // A hold/choke that ends before the sample would: fade out from there (never before the attack completes).
