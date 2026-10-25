@@ -526,7 +526,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
 
   const hitPanel =
     note && noteBlock ? (
-      <section className={cn("panel", full ? "flex items-center gap-2 overflow-x-auto p-1.5" : "space-y-2")}>
+      <section className={cn("timeline-hit-panel panel", full ? "flex items-center gap-2 overflow-x-auto p-1.5" : "space-y-2")}>
         <div className={cn("flex items-center gap-2", full && "shrink-0")}>
           <div className={cn("eyebrow truncate", !full && "min-w-0 flex-1")}>
             {note.padId} · {fmtPos(noteBlock.at)}
@@ -599,11 +599,11 @@ export function TimelineView({ pat }: { pat: Pattern }) {
   if (full)
     return (
       <div
-        className="fixed inset-0 z-40 flex flex-col gap-1.5 bg-background p-1.5"
+        className="timeline-studio timeline-full fixed inset-0 z-40 flex flex-col gap-1.5 bg-background p-1.5"
         style={{ paddingLeft: "max(0.375rem, env(safe-area-inset-left))", paddingRight: "max(0.375rem, env(safe-area-inset-right))" }}
         data-audio={audioVersion}
       >
-        <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto">
+        <div className="timeline-toolbar flex shrink-0 items-center gap-1.5 overflow-x-auto">
           <button aria-label="Exit full screen" className="btn min-h-9 w-9 shrink-0 px-0" onClick={() => {
               setFullDismissed(true);
               setForceFull(false);
@@ -627,8 +627,9 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     );
 
   return (
-    <div className="space-y-2" data-audio={audioVersion}>
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="timeline-studio panel space-y-3" data-audio={audioVersion}>
+      <div className="timeline-toolbar flex flex-wrap items-center gap-2">
+        <span className="eyebrow w-full">Timeline / snap grid</span>
         <Segmented className="basis-full" value={snap} onChange={(v) => setSnap(v)} options={SNAPS} />
         <div className="flex-1" />
         {zoomButtons}
