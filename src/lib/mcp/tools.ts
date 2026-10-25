@@ -405,7 +405,7 @@ export const tools = [
     name: "add_pattern",
     title: "Add a pattern",
     description:
-      "Add a pattern (1, 2 or 4 bars for a loop; 8, 16, 32, 64 or 128 for a whole song on the Timeline), empty or copied from another; it becomes the current pattern unless makeCurrent=false.",
+      "Add a pattern (1, 2 or 4 bars for a loop; any whole number of bars up to 256 for a whole song on the Timeline), empty or copied from another; it becomes the current pattern unless makeCurrent=false.",
     inputSchema: {
       project: PROJECT,
       name: z.string().optional(),
@@ -434,7 +434,7 @@ export const tools = [
     name: "edit_pattern",
     title: "Edit a pattern",
     description:
-      "Rename a pattern, set its length (1/2/4/8/16/32/64/128 bars; hits past the end are dropped), clear all its hits, or make it current.",
+      "Rename a pattern, set its length (1–256 whole bars; hits past the end are dropped), clear all its hits, or make it current.",
     inputSchema: {
       project: PROJECT,
       pattern: PATTERN,
@@ -458,7 +458,7 @@ export const tools = [
     name: "add_hits",
     title: "Add hits to a pattern",
     description:
-      "Add hits to a pattern. step = 16th note from the pattern start (0-based; 0–15 per bar, beat n starts at step 4n). velocity 1–127 (default the pad's), offset −0.5–0.49 of a step for played feel (heard when quantize is off). step may be a half step (x.5) for a 1/32 position. length = steps the hit sounds (0.5 = 1/32 note, 16 = a bar; loop pads repeat to fill it); omit for the pad's natural length. A hit on the same pad+step is replaced.",
+      "Add hits to a pattern. step = 16th note from the pattern start (0-based; 0–15 per bar, beat n starts at step 4n). velocity 1–127 (default the pad's), offset −0.5–0.49 of a step for played feel (heard when quantize is off). step may be a half step (x.5) for a 1/32 position; a step past the pattern's end makes the pattern longer (up to 256 bars). length = steps the hit sounds (0.5 = 1/32 note, 16 = a bar; loop pads repeat to fill it); omit for the pad's natural length. A hit on the same pad+step is replaced.",
     inputSchema: {
       project: PROJECT,
       pattern: PATTERN,
@@ -482,7 +482,7 @@ export const tools = [
     name: "song_to_timeline",
     title: "Lay the song out on the Timeline",
     description:
-      "Copy the Song (patterns in order) into one long pattern (rounded up to 8/16/32/64/128 bars) so the whole track can be edited hit by hit on the Timeline. Muted lanes are left out. The new pattern becomes current; the original patterns and song are kept.",
+      "Copy the Song (patterns in order) into one long pattern (rounded up to whole bars, up to 256) so the whole track can be edited hit by hit on the Timeline. Muted lanes are left out. The new pattern becomes current; the original patterns and song are kept.",
     inputSchema: { project: PROJECT, name: z.string().optional() },
     handler: async ({ project, name }) => {
       let id = "";

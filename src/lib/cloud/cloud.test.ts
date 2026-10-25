@@ -115,12 +115,16 @@ describe("project operations", () => {
     p = ops.setSong(p, [verse, verse, verse]);
     const r = ops.songToTimeline(p);
     const tl = r.project.patterns.find((x) => x.id === r.patternId)!;
-    expect(tl.lengthSteps).toBe(16 * 16); // 12 bars rounds up to 16
+    expect(tl.lengthSteps).toBe(12 * 16);
     expect(tl.notes.map((n) => n.step).sort((a, b) => a - b)).toEqual([0, 3.5, 64, 67.5, 128, 131.5]);
     expect(tl.notes.find((n) => n.step === 67.5)).toMatchObject({ exact: true, length: 0.5 });
     expect(r.project.currentPatternId).toBe(r.patternId);
     expect(() => ops.addHits(p, verse, [{ pad: "A1", step: 0, length: 0.2 }])).toThrow(ops.OpsError);
-    expect(() => ops.editPattern(p, verse, { bars: 3 })).toThrow(ops.OpsError);
+    expect(() => ops.editPattern(p, verse, { bars: 300 })).toThrow(ops.OpsError);
+    expect(ops.editPattern(p, verse, { bars: 3 }).patterns.find((x) => x.id === verse)!.lengthSteps).toBe(48);
+    // a hit past the end grows the pattern to the bar it lands in
+    const grown = ops.addHits(p, verse, [{ pad: "A1", step: 16 * 99 + 2 }]).patterns.find((x) => x.id === verse)!;
+    expect(grown.lengthSteps).toBe(100 * 16);
     expect(ops.editPattern(p, verse, { bars: 32 }).patterns.find((x) => x.id === verse)!.lengthSteps).toBe(512);
   });
 
@@ -135,7 +139,9 @@ describe("project operations", () => {
     let hits = ops.summarize(p).patterns[0].hits;
     expect(hits).toHaveLength(3);
     expect(hits.find((h) => h.step === 8)!.velocity).toBe(120);
-    expect(() => ops.addHits(p, undefined, [{ pad: "A1", step: 32 }])).toThrow(/outside/);
+    // past the end: the pattern grows to fit (no refusal); past 256 bars: refused
+    expect(ops.addHits(p, undefined, [{ pad: "A1", step: 32 }]).patterns[0].lengthSteps).toBe(48);
+    expect(() => ops.addHits(p, undefined, [{ pad: "A1", step: 256 * 16 }])).toThrow(ops.OpsError);
     p = ops.removeHits(p, undefined, "A1");
     hits = ops.summarize(p).patterns[0].hits;
     expect(hits.map((h) => h.pad)).toEqual(["A2"]);

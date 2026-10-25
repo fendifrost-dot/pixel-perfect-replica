@@ -59,7 +59,7 @@ export interface Pad {
 }
 
 /** Longest pattern (a whole song laid out on the Timeline). */
-export const MAX_PATTERN_BARS = 128;
+export const MAX_PATTERN_BARS = 256;
 
 export interface NoteEvent {
   id: string;
@@ -91,7 +91,7 @@ export interface Lane {
 export interface Pattern {
   id: string;
   name: string;
-  /** 16 steps per bar. The step grid edits 1, 2 or 4 bars; the Timeline goes up to MAX_PATTERN_BARS. */
+  /** 16 steps per bar. The step grid edits 1, 2 or 4 bars; the Timeline grows it as needed, up to MAX_PATTERN_BARS. */
   lengthSteps: number;
   lanes: Lane[];
   notes: NoteEvent[];
