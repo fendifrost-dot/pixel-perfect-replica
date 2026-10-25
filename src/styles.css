@@ -1176,3 +1176,11 @@
     animation-duration: 0s !important;
   }
 }
+
+/* Timeline controls from Claude's PRs #12 and #13 share the studio system. */
+.timeline-studio { min-width: 0; }
+.timeline-toolbar .field { width: auto; max-width: 180px; flex-shrink: 0; }
+.timeline-full { padding-top: max(6px, env(safe-area-inset-top)); padding-bottom: max(6px, env(safe-area-inset-bottom)); }
+.timeline-full .timeline-hit-panel { padding: 6px; border-radius: 10px; }
+.timeline-full .segmented-option { min-height: 34px; }
+.timeline-full .timeline-toolbar { border-bottom: 1px solid var(--border); padding-bottom: 6px; }

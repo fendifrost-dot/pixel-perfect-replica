@@ -58,6 +58,9 @@ export interface Pad {
   velocity: number; // 1..127, editable default velocity
 }
 
+/** Longest pattern (a whole song laid out on the Timeline). */
+export const MAX_PATTERN_BARS = 128;
+
 export interface NoteEvent {
   id: string;
   padId: string;
@@ -70,6 +73,13 @@ export interface NoteEvent {
    * so turning quantize off brings the original feel back.
    */
   offset: number;
+  /**
+   * Placed on the Timeline at an exact (possibly 1/32) position: performance quantize leaves it
+   * where it was put. `step` may then be fractional (multiples of 0.5).
+   */
+  exact?: boolean;
+  /** How long the hit sounds, in steps (0.5 = a 1/32 note). Absent = the pad's natural length. */
+  length?: number;
 }
 
 export interface Lane {
@@ -81,7 +91,8 @@ export interface Lane {
 export interface Pattern {
   id: string;
   name: string;
-  lengthSteps: 16 | 32 | 64;
+  /** 16 steps per bar. The step grid edits 1, 2 or 4 bars; the Timeline goes up to MAX_PATTERN_BARS. */
+  lengthSteps: number;
   lanes: Lane[];
   notes: NoteEvent[];
 }

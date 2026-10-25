@@ -398,7 +398,8 @@ export const transportService: TransportService = {
         if (!pad) continue;
         const slice = p.slices.find((x) => x.id === pad.sliceId);
         let stopAt: number | undefined;
-        if (pad.mode !== "oneshot") {
+        if (h.length) stopAt = timeAt(s, h.at + h.length);
+        else if (pad.mode !== "oneshot") {
           const next = eventsInRange(p, sections, h.at + 1e-6, h.at + total + 1e-6, true).find((x) => x.padId === h.padId);
           stopAt = timeAt(s, next ? next.at : h.at + total);
         }

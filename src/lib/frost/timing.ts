@@ -23,14 +23,14 @@ const GRID_STEPS: Record<Project["quantize"], number | null> = {
  *   It only applies to hits that sit on the grid, so unquantized playing keeps its own timing.
  */
 export function effectiveStep(
-  note: Pick<NoteEvent, "step" | "offset">,
+  note: Pick<NoteEvent, "step" | "offset" | "exact">,
   quantize: Project["quantize"],
   swing: number,
   lengthSteps: number,
 ): number {
   const raw = note.step + note.offset;
   const g = GRID_STEPS[quantize];
-  let pos = g == null ? raw : Math.round(raw / g) * g;
+  let pos = g == null || note.exact ? raw : Math.round(raw / g) * g;
   // Swing unit is the quantize grid for 1/8 and 1/16, otherwise 16ths.
   const unit = g === 2 ? 2 : 1;
   const k = pos / unit;
@@ -89,6 +89,8 @@ export interface ScheduledHit {
   velocity: number;
   /** Absolute position in steps from timeline start. */
   at: number;
+  /** Steps the hit sounds for, when the note sets one. */
+  length?: number;
 }
 
 /**
@@ -119,7 +121,7 @@ export function eventsInRange(
         if (lane && (lane.mute || (anySolo && !lane.solo))) continue;
         const at = base + effectiveStep(n, p.quantize, p.swing, pat.lengthSteps);
         if (at >= fromStep && at < toStep)
-          out.push({ noteId: n.id, padId: n.padId, velocity: n.velocity, at });
+          out.push({ noteId: n.id, padId: n.padId, velocity: n.velocity, at, ...(n.length ? { length: n.length } : {}) });
       }
     }
   }

@@ -19,7 +19,7 @@ const TITLES: Record<View, { title: string; description: string }> = {
     description: "A little piece of something. Something entirely new.",
   },
   pads: { title: "Make it your own.", description: "Sixteen pads. One good idea is all it takes." },
-  beat: { title: "Find your pocket.", description: "Lay down a pattern. Give it room to move." },
+  beat: { title: "Find your pocket.", description: "Sequence steps or shape every hit on the timeline." },
   export: {
     title: "Ready for the next session.",
     description: "Your mix and individual tracks, ready for your DAW.",
