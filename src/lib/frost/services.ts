@@ -35,7 +35,18 @@ export interface PlaybackService {
 }
 
 export interface TransportService {
-  start(getProject: () => Project, onStep: (step: number) => void, metronome: () => boolean, mode: LoopMode): void;
+  /**
+   * Play the pattern / song. With `repeat()` false it plays through once and then calls `onEnd`
+   * (sounds still ringing are left to finish).
+   */
+  start(
+    getProject: () => Project,
+    onStep: (step: number) => void,
+    metronome: () => boolean,
+    mode: LoopMode,
+    repeat?: () => boolean,
+    onEnd?: () => void,
+  ): void;
   stop(): void;
   isRunning(): boolean;
   mode(): LoopMode;

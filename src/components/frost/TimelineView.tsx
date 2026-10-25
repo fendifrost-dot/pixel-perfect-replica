@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Copy, Maximize2, Minimize2, Minus, Play, Plus, SkipBack, SkipForward, Square, Trash2 } from "lucide-react";
+import { ClipboardPaste, Copy, CopyPlus, Maximize2, Minimize2, Minus, Play, Plus, Repeat, Scissors, SkipBack, SkipForward, Square, Trash2 } from "lucide-react";
 import { useFrost, uid } from "@/lib/frost/store";
 import { audioStore } from "@/lib/frost/audioStore";
 import { playbackService } from "@/lib/frost/engine";
@@ -73,6 +73,15 @@ function waveImage(slice: Slice, reverse: boolean): string | null {
   return url;
 }
 
+/** How long a finger rests on a hit (or empty grid) before its menu opens. */
+const HOLD_MS = 450;
+
+/** The copied hit — kept outside the component so it survives switching tabs. */
+type Clip = { velocity: number; length?: number | undefined };
+let clipboard: Clip | null = null;
+
+type Menu = { x: number; y: number; padId: string; step: number; noteId?: string };
+
 type Drag = {
   id: string;
   kind: "move" | "size";
@@ -90,7 +99,32 @@ type Drag = {
  * to shorten or lengthen it — down to a 1/32 note. Long patterns (up to 128 bars) hold a whole song.
  */
 export function TimelineView({ pat }: { pat: Pattern }) {
-  const { project, commit, currentStep, playing, togglePlay, notify, setLoopMode, audioVersion } = useFrost();
+  const { project, commit, currentStep, playing, togglePlay, repeat, setRepeat, notify, setLoopMode, audioVersion } = useFrost();
+  const [clip, setClip] = useState<Clip | null>(clipboard);
+  const [menu, setMenu] = useState<Menu | null>(null);
+  const hold = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number; fired: boolean } | null>(null);
+  const cancelHold = () => {
+    if (hold.current) clearTimeout(hold.current.timer);
+    if (hold.current && !hold.current.fired) hold.current = null;
+  };
+  /** Start a press; `open` runs if the finger stays put for HOLD_MS. */
+  const startHold = (e: React.PointerEvent, open: () => void) => {
+    cancelHold();
+    const h = { x: e.clientX, y: e.clientY, fired: false, timer: setTimeout(() => {
+      h.fired = true;
+      window.navigator.vibrate?.(15);
+      open();
+    }, HOLD_MS) };
+    hold.current = h;
+  };
+  const movedHold = (e: React.PointerEvent) => {
+    const h = hold.current;
+    if (h && !h.fired && Math.hypot(e.clientX - h.x, e.clientY - h.y) > 8) cancelHold();
+  };
+  const copyHit = (n: NoteEvent) => {
+    clipboard = { velocity: n.velocity, length: n.length };
+    setClip(clipboard);
+  };
   // Sideways on a phone the timeline takes the whole screen (exit returns to the page until turned again).
   const sideways = usePhoneLandscape();
   const [fullDismissed, setFullDismissed] = useState(false);
@@ -270,6 +304,14 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
     const b = blocks.get(n.id)!;
     drag.current = { id: n.id, kind, x0: e.clientX, y0: e.clientY, step0: b.at, len0: b.len, row0: rowIds.indexOf(n.padId), moved: false };
+    if (kind === "move")
+      startHold(e, () => {
+        if (!drag.current || drag.current.moved) return;
+        drag.current = null;
+        setDraft(null);
+        setSel(n.id);
+        setMenu({ x: e.clientX, y: e.clientY, padId: n.padId, step: b.at, noteId: n.id });
+      });
   };
   const onBlockMove = (e: React.PointerEvent) => {
     const d = drag.current;
@@ -277,6 +319,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     const dx = e.clientX - d.x0, dy = e.clientY - d.y0;
     if (!d.moved && Math.hypot(dx, dy) < 6) return;
     d.moved = true;
+    cancelHold();
     const n = pat.notes.find((x) => x.id === d.id)!;
     if (d.kind === "move") {
       const step = Math.min(L - MIN_LEN, Math.max(0, snapTo(d.step0 + dx / pps)));
@@ -291,6 +334,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     }
   };
   const onBlockUp = () => {
+    cancelHold();
     const d = drag.current;
     drag.current = null;
     if (!d) return;
@@ -308,6 +352,10 @@ export function TimelineView({ pat }: { pat: Pattern }) {
   };
 
   const place = (e: React.MouseEvent, padId: string) => {
+    if (hold.current?.fired) {
+      hold.current = null; // the press opened a menu; this tap isn't a new hit
+      return;
+    }
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const step = Math.floor((e.clientX - r.left) / pps / snap) * snap;
     if (step < 0 || step >= L) return;
@@ -376,7 +424,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     <div
       ref={scroller}
       className={cn("relative overflow-auto overscroll-contain rounded-md border bg-background", full ? "min-h-0 flex-1" : "max-h-[60vh]")}
-      style={{ touchAction: "pan-x pan-y" }}
+      style={{ touchAction: "pan-x pan-y", WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none" }}
       onScroll={readView}
     >
       <div className="relative" style={{ width: LABEL_W + L * pps }}>
@@ -415,7 +463,17 @@ export function TimelineView({ pat }: { pat: Pattern }) {
                   </button>
                 </div>
               </div>
-              <div aria-label={`Timeline row ${padId}`} className="relative" style={{ width: L * pps, ...gridBg }} onClick={(e) => place(e, padId)}>
+              <div aria-label={`Timeline row ${padId}`} className="relative" style={{ width: L * pps, ...gridBg }} onClick={(e) => place(e, padId)}
+                onPointerDown={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  const step = Math.min(L - MIN_LEN, Math.max(0, Math.floor((e.clientX - r.left) / pps / snap) * snap));
+                  startHold(e, () => setMenu({ x: e.clientX, y: e.clientY, padId, step }));
+                }}
+                onPointerMove={movedHold}
+                onPointerUp={() => !hold.current?.fired && cancelHold()}
+                onPointerCancel={cancelHold}
+                onContextMenu={(e) => e.preventDefault()}
+              >
                 {notes.map((n) => {
                   const b = blocks.get(n.id);
                   if (!b) return null;
@@ -441,9 +499,11 @@ export function TimelineView({ pat }: { pat: Pattern }) {
                       onPointerMove={onBlockMove}
                       onPointerUp={onBlockUp}
                       onPointerCancel={() => {
+                        cancelHold();
                         drag.current = null;
                         setDraft(null);
                       }}
+                      onContextMenu={(e) => e.preventDefault()}
                     />
                   );
                 })}
@@ -486,7 +546,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     const f = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
     el.scrollLeft = f * gridPx - (el.clientWidth - LABEL_W) / 2;
   };
-  const navigator = (
+  const overview = (
     <div className="flex shrink-0 items-center gap-1.5">
       <button aria-label="Jump to the start" className="btn min-h-8 w-9 shrink-0 px-0" onClick={() => scroller.current?.scrollTo({ left: 0 })}>
         <SkipBack className="size-4" />
@@ -522,6 +582,73 @@ export function TimelineView({ pat }: { pat: Pattern }) {
         Fit
       </button>
     </div>
+  );
+
+  const menuNote = menu?.noteId ? pat.notes.find((n) => n.id === menu.noteId) : undefined;
+  const closeMenu = () => {
+    setMenu(null);
+    hold.current = null;
+  };
+  const paste = (padId: string, step: number) => {
+    if (!clip) return;
+    const id = uid();
+    upd((x) => ({ ...x, notes: [...x.notes, { id, padId, step, velocity: clip.velocity, offset: 0, exact: true, ...(clip.length ? { length: clip.length } : {}) }] }));
+    setSel(id);
+    hear(padId);
+  };
+  const menuItem = (label: string, Icon: typeof Copy, run: () => void, disabled = false) => (
+    <button
+      key={label}
+      disabled={disabled}
+      className="flex min-h-11 w-full items-center gap-2 rounded-sm px-3 text-left text-sm hover:bg-surface-2 disabled:opacity-40"
+      onClick={() => {
+        run();
+        closeMenu();
+      }}
+    >
+      <Icon className="size-4" /> {label}
+    </button>
+  );
+  const menuEl = menu && (
+    <>
+      <div className="fixed inset-0 z-[60]" onClick={closeMenu} onContextMenu={(e) => e.preventDefault()} />
+      <div
+        role="menu"
+        aria-label={menuNote ? "Hit menu" : "Grid menu"}
+        className="fixed z-[61] w-44 rounded-md border bg-popover p-1 shadow-lg"
+        style={{
+          left: Math.min(menu.x, (typeof window !== "undefined" ? window.innerWidth : 400) - 184),
+          top: Math.min(menu.y + 8, (typeof window !== "undefined" ? window.innerHeight : 800) - (menuNote ? 196 : 60)),
+        }}
+      >
+        {menuNote ? (
+          <>
+            {menuItem("Copy", Copy, () => copyHit(menuNote))}
+            {menuItem("Cut", Scissors, () => {
+              copyHit(menuNote);
+              upd((x) => ({ ...x, notes: x.notes.filter((n) => n.id !== menuNote.id) }));
+              setSel(null);
+            })}
+            {menuItem("Duplicate after", CopyPlus, () => {
+              const b = blocks.get(menuNote.id);
+              const at = b ? b.at + Math.max(MIN_LEN, b.len) : L;
+              if (at >= L) return notify("No room after this hit — make the timeline longer.");
+              const id = uid();
+              upd((x) => ({ ...x, notes: [...x.notes, { ...menuNote, id, step: at, offset: 0, exact: true }] }));
+              setSel(id);
+            })}
+            {menuItem("Delete", Trash2, () => {
+              upd((x) => ({ ...x, notes: x.notes.filter((n) => n.id !== menuNote.id) }));
+              setSel(null);
+            })}
+          </>
+        ) : clip ? (
+          menuItem(`Paste here (${menu.padId})`, ClipboardPaste, () => paste(menu.padId, menu.step))
+        ) : (
+          <p className="px-3 py-2 text-xs text-muted-foreground">Hold a hit and choose Copy first.</p>
+        )}
+      </div>
+    </>
   );
 
   const hitPanel =
@@ -574,7 +701,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
       </section>
     ) : (
       <p className="px-1 text-[11px] text-muted-foreground">
-        Pinch to zoom · drag empty grid to scroll · drag the strip below the grid to jump around · tap the grid to place a hit · drag a hit to move it (up or down to change pads) · tap it, then drag the white handle to shorten it, down to 1/32. Loop pads repeat to fill a longer hit.
+        Hold a hit to copy, cut or delete it · hold empty grid to paste · pinch to zoom · drag empty grid to scroll · drag the strip below the grid to jump around · tap the grid to place a hit · drag a hit to move it (up or down to change pads) · tap it, then drag the white handle to shorten it, down to 1/32. Loop pads repeat to fill a longer hit.
       </p>
     );
 
@@ -613,6 +740,15 @@ export function TimelineView({ pat }: { pat: Pattern }) {
           <button aria-label={playing ? "Stop" : "Play"} onClick={() => void togglePlay()} className={cn("btn min-h-9 w-12 shrink-0 px-0", playing ? "btn-on" : "btn-primary")}>
             {playing ? <Square className="size-4 fill-current" /> : <Play className="size-4 fill-current" />}
           </button>
+          <button
+            aria-label="Repeat"
+            aria-pressed={repeat}
+            title={repeat ? "Repeat on: the beat loops" : "Repeat off: plays once, then stops"}
+            onClick={() => setRepeat(!repeat)}
+            className={cn("btn min-h-9 w-9 shrink-0 px-0", repeat && "btn-on")}
+          >
+            <Repeat className="size-4" />
+          </button>
           <span className="shrink-0 font-mono text-xs text-muted-foreground">{project.bpm} BPM</span>
           <Segmented className="w-[17rem] shrink-0" value={snap} onChange={(v) => setSnap(v)} options={SNAPS} />
           {zoomButtons}
@@ -621,8 +757,9 @@ export function TimelineView({ pat }: { pat: Pattern }) {
           {songButton}
         </div>
         {grid}
-        {navigator}
+        {overview}
         <div className="shrink-0">{hitPanel}</div>
+        {menuEl}
       </div>
     );
 
@@ -644,9 +781,10 @@ export function TimelineView({ pat }: { pat: Pattern }) {
       </div>
       <p className="text-[11px] text-muted-foreground">Turn your phone sideways for a full-screen timeline.</p>
       {grid}
-      {navigator}
+      {overview}
       {addRow}
       {hitPanel}
+      {menuEl}
     </div>
   );
 }
