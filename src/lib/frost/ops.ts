@@ -108,6 +108,7 @@ export function summarize(p: Project) {
           velocity: n.velocity,
           offset: n.offset,
           ...(n.length ? { length: n.length } : {}),
+          ...(n.pitch ? { pitch: n.pitch } : {}),
         })),
       muted: pt.lanes.filter((l) => l.mute).map((l) => l.padId),
       soloed: pt.lanes.filter((l) => l.solo).map((l) => l.padId),
@@ -500,6 +501,8 @@ export interface HitInput {
   offset?: number | undefined;
   /** Steps the hit sounds for (0.5 = a 1/32 note); omit for the pad's natural length. */
   length?: number | undefined;
+  /** Semitones on top of the pad (−48–48), e.g. a bassline on one Instruments pad. */
+  pitch?: number | undefined;
 }
 
 /** Add hits (step = 16th note from pattern start, 0-based). An existing hit on the same pad+step is replaced. */
@@ -529,6 +532,7 @@ export function addHits(p: Project, patternId: string | undefined, hits: HitInpu
       offset: exact ? 0 : offset,
       ...(exact ? { exact } : {}),
       ...(h.length != null ? { length: h.length } : {}),
+      ...(h.pitch ? { pitch: Math.round(Math.max(-48, Math.min(48, h.pitch))) } : {}),
     };
     if (i >= 0) notes[i] = note;
     else notes.push(note);

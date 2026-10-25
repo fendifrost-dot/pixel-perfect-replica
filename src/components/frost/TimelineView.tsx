@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ClipboardPaste, Copy, CopyPlus, Maximize2, Minimize2, Minus, Play, Plus, Repeat, Scissors, SkipBack, SkipForward, Square, Trash2 } from "lucide-react";
+import { BoxSelect, ClipboardPaste, Copy, CopyPlus, Mic, Maximize2, Minimize2, Minus, Play, Plus, Repeat, Scissors, SkipBack, SkipForward, Square, Trash2 } from "lucide-react";
 import { useFrost, uid } from "@/lib/frost/store";
 import { audioStore } from "@/lib/frost/audioStore";
 import { playbackService } from "@/lib/frost/engine";
@@ -8,6 +8,11 @@ import { effectiveStep, playPlan, stepDur } from "@/lib/frost/timing";
 import { PATTERN_BARS, songToTimeline, stepsToFit } from "@/lib/frost/ops";
 import { MAX_PATTERN_BARS, type Lane, type NoteEvent, type Pad, type Pattern, type Slice } from "@/lib/frost/types";
 import { Segmented } from "./controls";
+import { HumRecorder } from "./HumRecorder";
+import { INSTRUMENTS, parseKitSourceId } from "@/lib/frost/kits";
+import { assignDrum, pruneKitSources } from "@/lib/frost/kitActions";
+import { kitService } from "@/lib/frost/engine";
+import { noteName } from "@/lib/frost/hum";
 import { cn } from "@/lib/utils";
 
 /** Grid choices in steps (16ths). 1/32 = half a step — also the shortest a hit can be. */
@@ -34,6 +39,7 @@ const MAX_PPS = 64;
 const clampPps = (v: number) => Math.min(MAX_PPS, Math.max(MIN_PPS, v));
 const ROW_H = 44;
 const LABEL_W = 84;
+const RULER_H = 24;
 
 const BLOCK: Record<Pad["color"], string> = {
   teal: "bg-teal/35 border-teal",
@@ -76,15 +82,18 @@ function waveImage(slice: Slice, reverse: boolean): string | null {
 /** How long a finger rests on a hit (or empty grid) before its menu opens. */
 const HOLD_MS = 450;
 
-/** The copied hit — kept outside the component so it survives switching tabs. */
-type Clip = { velocity: number; length?: number | undefined };
-let clipboard: Clip | null = null;
+/** One copied hit: everything but its id and place; `rel` = steps after the first copied hit. */
+type ClipItem = Omit<NoteEvent, "id" | "step" | "offset" | "exact"> & { rel: number };
+/** The copied hits — kept outside the component so they survive switching tabs. */
+let clipboard: ClipItem[] | null = null;
 
 type Menu = { x: number; y: number; padId: string; step: number; noteId?: string };
 
 type Drag = {
   id: string;
-  kind: "move" | "size";
+  kind: "move" | "size" | "group";
+  /** Select mode: the hit was already picked when pressed (a plain tap then un-picks it). */
+  wasPicked?: boolean;
   x0: number;
   y0: number;
   step0: number;
@@ -100,7 +109,13 @@ type Drag = {
  */
 export function TimelineView({ pat }: { pat: Pattern }) {
   const { project, commit, currentStep, playing, togglePlay, repeat, setRepeat, notify, setLoopMode, audioVersion } = useFrost();
-  const [clip, setClip] = useState<Clip | null>(clipboard);
+  const [clip, setClip] = useState<ClipItem[] | null>(clipboard);
+  const [humOpen, setHumOpen] = useState(false);
+  /** Select mode: tap hits or drag a box to pick several, then move / copy / repeat them together. */
+  const [selectMode, setSelectMode] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [band, setBand] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const [groupDraft, setGroupDraft] = useState<{ dStep: number; dRow: number } | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
   const hold = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number; fired: boolean } | null>(null);
   const cancelHold = () => {
@@ -121,10 +136,14 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     const h = hold.current;
     if (h && !h.fired && Math.hypot(e.clientX - h.x, e.clientY - h.y) > 8) cancelHold();
   };
-  const copyHit = (n: NoteEvent) => {
-    clipboard = { velocity: n.velocity, length: n.length };
+  /** Copy hits, keeping their spacing (and rows, when more than one). */
+  const copyHits = (ns: NoteEvent[], at: (n: NoteEvent) => number) => {
+    if (!ns.length) return;
+    const s0 = Math.min(...ns.map(at));
+    clipboard = ns.map(({ id: _id, step: _step, offset: _o, exact: _e, ...rest }) => ({ ...rest, rel: 0 })).map((c, i) => ({ ...c, rel: at(ns[i]) - s0 }));
     setClip(clipboard);
   };
+  const copyHit = (n: NoteEvent) => copyHits([n], (x) => blocks.get(x.id)?.at ?? x.step);
   // Sideways on a phone the timeline takes the whole screen (exit returns to the page until turned again).
   const sideways = usePhoneLandscape();
   const [fullDismissed, setFullDismissed] = useState(false);
@@ -219,9 +238,10 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pat, project.quantize, project.pads, project.slices, project.bpm]);
 
-  const hear = (padId: string) => {
-    const pad = padOf(padId);
-    if (!pad) return;
+  const hear = (padId: string, pitch = 0) => {
+    const base = padOf(padId);
+    if (!base) return;
+    const pad = pitch ? { ...base, pitch: base.pitch + pitch } : base;
     playbackService.stopAll();
     const go = () => playbackService.triggerPad(pad, sliceOf(pad), pad.velocity, project.bpm);
     if (playbackService.isReady()) go();
@@ -319,6 +339,12 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     e.stopPropagation();
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
     const b = blocks.get(n.id)!;
+    if (selectMode && kind === "move") {
+      const wasPicked = picked.has(n.id);
+      if (!wasPicked) setPicked(new Set([...picked, n.id]));
+      drag.current = { id: n.id, kind: "group", wasPicked, x0: e.clientX, y0: e.clientY, step0: b.at, len0: b.len, row0: rowIds.indexOf(n.padId), moved: false };
+      return;
+    }
     drag.current = { id: n.id, kind, x0: e.clientX, y0: e.clientY, step0: b.at, len0: b.len, row0: rowIds.indexOf(n.padId), moved: false };
     if (kind === "move")
       startHold(e, () => {
@@ -337,6 +363,15 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     d.moved = true;
     cancelHold();
     const n = pat.notes.find((x) => x.id === d.id)!;
+    if (d.kind === "group") {
+      const group = pat.notes.filter((x) => picked.has(x.id) || x.id === d.id);
+      const minAt = Math.min(...group.map((x) => blocks.get(x.id)?.at ?? 0));
+      const rows = group.map((x) => rowIds.indexOf(x.padId));
+      const dStep = Math.max(-minAt, snapTo(dx / pps));
+      const dRow = Math.min(rowIds.length - 1 - Math.max(...rows), Math.max(-Math.min(...rows), Math.round(dy / ROW_H)));
+      setGroupDraft({ dStep, dRow });
+      return;
+    }
     if (d.kind === "move") {
       const step = Math.min(W - MIN_LEN, Math.max(0, snapTo(d.step0 + dx / pps)));
       const row = Math.min(rowIds.length - 1, Math.max(0, d.row0 + Math.round(dy / ROW_H)));
@@ -354,10 +389,30 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     const d = drag.current;
     drag.current = null;
     if (!d) return;
+    if (d.kind === "group") {
+      if (!d.moved) {
+        // a plain tap toggles the hit in or out of the selection
+        if (d.wasPicked) setPicked(new Set([...picked].filter((x) => x !== d.id)));
+        return;
+      }
+      const g = groupDraft;
+      setGroupDraft(null);
+      if (!g || (!g.dStep && !g.dRow)) return;
+      const ids = new Set([...picked, d.id]);
+      upd((x) => ({
+        ...x,
+        notes: x.notes.map((nn) => {
+          if (!ids.has(nn.id)) return nn;
+          const row = rowIds.indexOf(nn.padId);
+          return { ...nn, step: Math.min(W - MIN_LEN, (blocks.get(nn.id)?.at ?? nn.step) + g.dStep), offset: 0, exact: true, padId: rowIds[row + g.dRow] ?? nn.padId };
+        }),
+      }));
+      return;
+    }
     if (!d.moved) {
       const n = pat.notes.find((x) => x.id === d.id);
       setSel(sel === d.id ? null : d.id);
-      if (n && sel !== d.id) hear(n.padId);
+      if (n && sel !== d.id) hear(n.padId, n.pitch);
       return;
     }
     if (draft) {
@@ -368,6 +423,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
   };
 
   const place = (e: React.MouseEvent, padId: string) => {
+    if (selectMode) return; // taps on empty grid select (box), they don't add hits
     if (hold.current?.fired) {
       hold.current = null; // the press opened a menu; this tap isn't a new hit
       return;
@@ -440,16 +496,44 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     </select>
   );
 
+  /** Pointer position in grid content pixels (0,0 = first step of the first row). */
+  const contentAt = (e: React.PointerEvent) => {
+    const el = scroller.current!;
+    const r = el.getBoundingClientRect();
+    return { x: e.clientX - r.left + el.scrollLeft - LABEL_W, y: e.clientY - r.top + el.scrollTop - RULER_H };
+  };
+  const finishBand = () => {
+    const b = band;
+    setBand(null);
+    if (!b) return;
+    if (Math.abs(b.x1 - b.x0) < 6 && Math.abs(b.y1 - b.y0) < 6) return setPicked(new Set()); // tap on empty grid clears
+    const s0 = Math.min(b.x0, b.x1) / pps, s1 = Math.max(b.x0, b.x1) / pps;
+    const r0 = Math.floor(Math.min(b.y0, b.y1) / ROW_H), r1 = Math.floor(Math.max(b.y0, b.y1) / ROW_H);
+    const hit = pat.notes.filter((n) => {
+      const bl = blocks.get(n.id);
+      const row = rowIds.indexOf(n.padId);
+      return bl && row >= r0 && row <= r1 && bl.at < s1 && bl.at + Math.max(bl.len, MIN_LEN) > s0;
+    });
+    setPicked(new Set([...picked, ...hit.map((n) => n.id)]));
+  };
+  const shown = (n: NoteEvent) => {
+    if (draft?.id === n.id) return { padId: draft.padId, at: draft.step };
+    const at = blocks.get(n.id)?.at ?? n.step;
+    if (groupDraft && (picked.has(n.id) || drag.current?.id === n.id))
+      return { padId: rowIds[rowIds.indexOf(n.padId) + groupDraft.dRow] ?? n.padId, at: Math.max(0, at + groupDraft.dStep) };
+    return { padId: n.padId, at };
+  };
+
   const grid = (
     <div
       ref={scroller}
       className={cn("relative overflow-auto overscroll-contain rounded-md border bg-background", full ? "min-h-0 flex-1" : "max-h-[60vh]")}
-      style={{ touchAction: "pan-x pan-y", WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none" }}
+      style={{ touchAction: selectMode ? "none" : "pan-x pan-y", WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none" }}
       onScroll={readView}
     >
       <div className="relative" style={{ width: LABEL_W + W * pps }}>
         {/* ruler */}
-        <div className="sticky top-0 z-30 flex h-6 border-b bg-background">
+        <div className="sticky top-0 z-30 flex border-b bg-background" style={{ height: RULER_H }}>
           <div className="sticky left-0 z-20 shrink-0 border-r bg-background" style={{ width: LABEL_W }} />
           <div className="relative" style={{ width: W * pps }}>
             {Array.from({ length: W / 16 }, (_, b) =>
@@ -471,7 +555,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
           const slice = sliceOf(pad);
           const lane = laneOf(padId);
           const img = slice && pad ? waveImage(slice, pad.reverse) : null;
-          const notes = pat.notes.filter((n) => (draft?.id === n.id ? draft.padId : n.padId) === padId);
+          const notes = pat.notes.filter((n) => shown(n).padId === padId);
           return (
             <div key={padId} className={cn("flex border-b", lane.mute && "opacity-50")} style={{ height: ROW_H }}>
               <div className="sticky left-0 z-20 flex shrink-0 flex-col justify-center gap-0.5 border-r bg-surface px-1.5" style={{ width: LABEL_W }}>
@@ -489,21 +573,35 @@ export function TimelineView({ pat }: { pat: Pattern }) {
               </div>
               <div aria-label={`Timeline row ${padId}`} className="relative" style={{ width: W * pps, ...gridBg }} onClick={(e) => place(e, padId)}
                 onPointerDown={(e) => {
+                  if (selectMode) {
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    const c = contentAt(e);
+                    setBand({ x0: c.x, y0: c.y, x1: c.x, y1: c.y });
+                    return;
+                  }
                   const r = e.currentTarget.getBoundingClientRect();
                   const step = Math.min(W - MIN_LEN, Math.max(0, Math.floor((e.clientX - r.left) / pps / snap) * snap));
                   startHold(e, () => setMenu({ x: e.clientX, y: e.clientY, padId, step }));
                 }}
-                onPointerMove={movedHold}
-                onPointerUp={() => !hold.current?.fired && cancelHold()}
+                onPointerMove={(e) => {
+                  if (band) {
+                    const c = contentAt(e);
+                    setBand({ ...band, x1: c.x, y1: c.y });
+                  } else movedHold(e);
+                }}
+                onPointerUp={() => {
+                  if (band) finishBand();
+                  else if (!hold.current?.fired) cancelHold();
+                }}
                 onPointerCancel={cancelHold}
                 onContextMenu={(e) => e.preventDefault()}
               >
                 {notes.map((n) => {
                   const b = blocks.get(n.id);
                   if (!b) return null;
-                  const at = draft?.id === n.id ? draft.step : b.at;
+                  const at = shown(n).at;
                   const len = draft?.id === n.id ? Math.min(draft.length ?? (pad?.mode === "oneshot" ? b.natural : b.len), W - at) : b.len;
-                  const on = sel === n.id;
+                  const on = selectMode ? picked.has(n.id) : sel === n.id;
                   return (
                     <div
                       key={n.id}
@@ -532,7 +630,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
                   );
                 })}
                 {/* Resize handle sits just after the selected hit so even a 1/32 hit can be grabbed. */}
-                {note && noteBlock && (draft?.id === note.id ? draft.padId : note.padId) === padId && (
+                {!selectMode && note && noteBlock && (draft?.id === note.id ? draft.padId : note.padId) === padId && (
                   <div
                     role="button"
                     aria-label="Drag to change the hit's length"
@@ -554,6 +652,17 @@ export function TimelineView({ pat }: { pat: Pattern }) {
           );
         })}
 
+        {band && (
+          <div
+            className="pointer-events-none absolute z-20 rounded-sm border-2 border-primary bg-primary/15"
+            style={{
+              left: LABEL_W + Math.min(band.x0, band.x1),
+              top: RULER_H + Math.min(band.y0, band.y1),
+              width: Math.abs(band.x1 - band.x0),
+              height: Math.abs(band.y1 - band.y0),
+            }}
+          />
+        )}
         {/* Past the song's end: still open for hits — placing one there makes the song longer. */}
         <div className="pointer-events-none absolute top-6 bottom-0 z-[5] border-l-2 border-primary bg-background/40" style={{ left: LABEL_W + L * pps, width: (W - L) * pps }} />
         {head >= 0 && <div className="pointer-events-none absolute top-0 bottom-0 z-10 w-0.5 bg-foreground" style={{ left: LABEL_W + head * pps }} />}
@@ -619,12 +728,18 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     setMenu(null);
     hold.current = null;
   };
+  /** Paste at `step`: one hit lands on the row you pressed; a group keeps its own rows and spacing. */
   const paste = (padId: string, step: number) => {
-    if (!clip) return;
-    const id = uid();
-    upd((x) => ({ ...x, notes: [...x.notes, { id, padId, step, velocity: clip.velocity, offset: 0, exact: true, ...(clip.length ? { length: clip.length } : {}) }] }));
-    setSel(id);
-    hear(padId);
+    if (!clip?.length) return;
+    const made = clip.map(({ rel, ...c }) => ({ ...c, id: uid(), padId: clip.length === 1 ? padId : c.padId, step: Math.min(W - MIN_LEN, step + rel), offset: 0, exact: true }));
+    upd((x) => ({ ...x, notes: [...x.notes, ...made] }));
+    if (made.length === 1) {
+      setSel(made[0].id);
+      hear(padId);
+    } else {
+      setSelectMode(true);
+      setPicked(new Set(made.map((m) => m.id)));
+    }
   };
   const menuItem = (label: string, Icon: typeof Copy, run: () => void, disabled = false) => (
     <button
@@ -671,9 +786,13 @@ export function TimelineView({ pat }: { pat: Pattern }) {
               upd((x) => ({ ...x, notes: x.notes.filter((n) => n.id !== menuNote.id) }));
               setSel(null);
             })}
+            {menuItem("Select several…", BoxSelect, () => {
+              setSelectMode(true);
+              setPicked(new Set([menuNote.id]));
+            })}
           </>
         ) : clip ? (
-          menuItem(`Paste here (${menu.padId})`, ClipboardPaste, () => paste(menu.padId, menu.step))
+          menuItem(clip.length === 1 ? `Paste here (${menu.padId})` : `Paste ${clip.length} hits here`, ClipboardPaste, () => paste(menu.padId, menu.step))
         ) : (
           <p className="px-3 py-2 text-xs text-muted-foreground">Hold a hit and choose Copy first.</p>
         )}
@@ -681,7 +800,63 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     </>
   );
 
-  const hitPanel =
+  const pickedNotes = pat.notes.filter((n) => picked.has(n.id));
+  /** The selection's length, rounded up to whole beats (or bars, once it's most of a bar). */
+  const groupSpan = (() => {
+    if (!pickedNotes.length) return 0;
+    const at = (n: NoteEvent) => blocks.get(n.id)?.at ?? n.step;
+    const s0 = Math.min(...pickedNotes.map(at));
+    const e = Math.max(...pickedNotes.map((n) => at(n) + Math.max(MIN_LEN, n.length ?? Math.min(blocks.get(n.id)?.len ?? 1, 64))));
+    const span = e - s0;
+    const unit = span >= 12 ? 16 : 4;
+    return Math.ceil(span / unit - 1e-9) * unit;
+  })();
+  const repeatGroup = (times: number) => {
+    if (!pickedNotes.length) return;
+    const made: NoteEvent[] = [];
+    for (let k = 1; k <= times; k++)
+      for (const n of pickedNotes) {
+        const step = (blocks.get(n.id)?.at ?? n.step) + groupSpan * k;
+        if (step < W) made.push({ ...n, id: uid(), step, offset: 0, exact: true });
+      }
+    if (!made.length) return notify(`That's past the ${MAX_PATTERN_BARS}-bar limit.`);
+    upd((x) => ({ ...x, notes: [...x.notes, ...made] }));
+    const el = scroller.current;
+    if (el) el.scrollLeft = Math.max(0, (Math.max(...made.map((m) => m.step)) - 8) * pps);
+  };
+  const exitSelect = () => {
+    setSelectMode(false);
+    setPicked(new Set());
+  };
+  const groupBar = (
+    <section className={cn("timeline-hit-panel panel flex flex-wrap items-center gap-2", full && "flex-nowrap overflow-x-auto p-1.5")}>
+      <div className="eyebrow shrink-0">{picked.size ? `${picked.size} selected · ${groupSpan % 16 ? `${groupSpan / 4} beats` : `${groupSpan / 16} bar${groupSpan === 16 ? "" : "s"}`}` : "Tap hits or drag a box"}</div>
+      <button className="btn min-h-9 shrink-0 text-xs" onClick={() => setPicked(new Set(pat.notes.map((n) => n.id)))}>All</button>
+      <button className="btn min-h-9 shrink-0 text-xs" disabled={!picked.size} onClick={() => {
+          copyHits(pickedNotes, (x) => blocks.get(x.id)?.at ?? x.step);
+          notify(`Copied ${pickedNotes.length} hit${pickedNotes.length === 1 ? "" : "s"} — hold empty grid to paste.`);
+        }}>
+        <Copy className="size-4" /> Copy
+      </button>
+      <div className="flex shrink-0 items-center gap-1">
+        <span className="text-xs text-muted-foreground">Repeat</span>
+        {[1, 2, 4, 8].map((t) => (
+          <button key={t} aria-label={`Repeat ${t} times`} className="btn min-h-9 px-2.5 text-xs" disabled={!picked.size} onClick={() => repeatGroup(t)}>
+            ×{t}
+          </button>
+        ))}
+      </div>
+      <button aria-label="Delete selected" className="btn min-h-9 shrink-0 text-xs" disabled={!picked.size} onClick={() => {
+          upd((x) => ({ ...x, notes: x.notes.filter((n) => !picked.has(n.id)) }));
+          setPicked(new Set());
+        }}>
+        <Trash2 className="size-4" />
+      </button>
+      <button className="btn btn-on min-h-9 shrink-0 text-xs" onClick={exitSelect}>Done</button>
+    </section>
+  );
+
+  const hitPanel = selectMode ? groupBar :
     note && noteBlock ? (
       <section className={cn("timeline-hit-panel panel", full ? "flex items-center gap-2 overflow-x-auto p-1.5" : "space-y-2")}>
         <div className={cn("flex items-center gap-2", full && "shrink-0")}>
@@ -716,6 +891,47 @@ export function TimelineView({ pat }: { pat: Pattern }) {
           {!full && <div className="eyebrow mb-1">Length</div>}
           <Segmented value={note.length ?? 0} onChange={(v) => setNote(note.id, { length: v === 0 ? undefined : v })} options={LENGTHS} />
         </div>
+        {(() => {
+          const pad = padOf(note.padId);
+          const src = project.slices.find((x) => x.id === pad?.sliceId)?.sourceId;
+          const k = src ? parseKitSourceId(src) : null;
+          const inst = k?.kitId === INSTRUMENTS.id ? INSTRUMENTS.drums.find((d) => d.id === k.drumId) : undefined;
+          const pitch = note.pitch ?? 0;
+          const setPitch = (v: number) => {
+            const next = Math.max(-48, Math.min(48, v));
+            setNote(note.id, { pitch: next || undefined } as Partial<NoteEvent>);
+            hear(note.padId, next);
+          };
+          return (
+            <>
+              <div className={cn("flex items-center gap-1 text-xs", full && "shrink-0")}>
+                <span className="mr-1 text-muted-foreground">Pitch</span>
+                <button aria-label="Pitch down" className="btn min-h-9 w-9 px-0" onClick={() => setPitch(pitch - 1)}>−</button>
+                <span className="w-12 text-center font-mono">{inst ? noteName((inst.rootMidi ?? 36) + (pad?.pitch ?? 0) + pitch) : `${pitch > 0 ? "+" : ""}${pitch} st`}</span>
+                <button aria-label="Pitch up" className="btn min-h-9 w-9 px-0" onClick={() => setPitch(pitch + 1)}>+</button>
+              </div>
+              {inst && pad && (
+                <div className={cn("flex gap-1 overflow-x-auto", full && "shrink-0")} aria-label="Instrument">
+                  {INSTRUMENTS.drums.map((d) => (
+                    <button
+                      key={d.id}
+                      className={cn("btn min-h-9 shrink-0 px-2 text-xs", d.id === inst.id && "btn-on")}
+                      onClick={() => {
+                        const loaded = kitService.loadDrum(INSTRUMENTS.id, d.id);
+                        if (!loaded) return;
+                        // same pad, new sound: every hit (and its pitch) stays where it is
+                        commit((p) => pruneKitSources(assignDrum(p, pad.id, loaded, uid())));
+                        setTimeout(() => hear(pad.id, pitch), 30);
+                      }}
+                    >
+                      {d.short}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          );
+        })()}
         <label className={cn("flex items-center gap-3 text-xs", full && "w-48 shrink-0 gap-2")}>
           <span className="shrink-0 text-muted-foreground">{full ? "Vel" : "Velocity"}</span>
           <input
@@ -731,7 +947,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
       </section>
     ) : (
       <p className="px-1 text-[11px] text-muted-foreground">
-        Hold a hit to copy, cut or delete it · hold empty grid to paste · pinch to zoom · drag empty grid to scroll · drag the strip below the grid to jump around · tap the grid to place a hit · drag a hit to move it (up or down to change pads) · tap it, then drag the white handle to shorten it, down to 1/32. Loop pads repeat to fill a longer hit.
+        Mic: hum a bassline or melody (or beatbox drums) and pick the instrument · Select (box icon) to pick several hits, drag them together, copy them or repeat them · hold a hit to copy, cut or delete it · hold empty grid to paste · pinch to zoom · drag empty grid to scroll · drag the strip below the grid to jump around · tap the grid to place a hit · drag a hit to move it (up or down to change pads) · tap it, then drag the white handle to shorten it, down to 1/32. Loop pads repeat to fill a longer hit.
       </p>
     );
 
@@ -779,7 +995,13 @@ export function TimelineView({ pat }: { pat: Pattern }) {
           >
             <Repeat className="size-4" />
           </button>
+          <button aria-label="Record a sound — hum or beatbox" title="Hum a line or beatbox drums" className="btn min-h-9 w-9 shrink-0 px-0" onClick={() => setHumOpen(true)}>
+            <Mic className="size-4 text-rec" />
+          </button>
           <span className="shrink-0 font-mono text-xs text-muted-foreground">{project.bpm} BPM</span>
+          <button aria-label="Select several hits" aria-pressed={selectMode} title="Select several hits" className={cn("btn min-h-9 w-9 shrink-0 px-0", selectMode && "btn-on")} onClick={() => (selectMode ? exitSelect() : (setSelectMode(true), setSel(null)))}>
+            <BoxSelect className="size-4" />
+          </button>
           <Segmented className="w-[17rem] shrink-0" value={snap} onChange={(v) => setSnap(v)} options={SNAPS} />
           {zoomButtons}
           {lengthSelect}
@@ -790,6 +1012,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
         {overview}
         <div className="shrink-0">{hitPanel}</div>
         {menuEl}
+        {humOpen && <HumRecorder pat={pat} snap={snap} onClose={() => setHumOpen(false)} />}
       </div>
     );
 
@@ -799,6 +1022,12 @@ export function TimelineView({ pat }: { pat: Pattern }) {
         <span className="eyebrow w-full">Timeline / snap grid</span>
         <Segmented className="basis-full" value={snap} onChange={(v) => setSnap(v)} options={SNAPS} />
         <div className="flex-1" />
+        <button aria-label="Record a sound — hum or beatbox" title="Hum a line or beatbox drums" className="btn min-h-9 w-9 shrink-0 px-0" onClick={() => setHumOpen(true)}>
+            <Mic className="size-4 text-rec" />
+          </button>
+        <button aria-label="Select several hits" aria-pressed={selectMode} title="Select several hits" className={cn("btn min-h-9 w-9 shrink-0 px-0", selectMode && "btn-on")} onClick={() => (selectMode ? exitSelect() : (setSelectMode(true), setSel(null)))}>
+            <BoxSelect className="size-4" />
+          </button>
         {zoomButtons}
         {lengthSelect}
         {songButton}
@@ -815,6 +1044,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
       {addRow}
       {hitPanel}
       {menuEl}
+      {humOpen && <HumRecorder pat={pat} snap={snap} onClose={() => setHumOpen(false)} />}
     </div>
   );
 }

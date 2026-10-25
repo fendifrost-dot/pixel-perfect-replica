@@ -91,7 +91,13 @@ export interface ScheduledHit {
   at: number;
   /** Steps the hit sounds for, when the note sets one. */
   length?: number;
+  /** Semitones on top of the pad's pitch, when the note sets one. */
+  pitch?: number;
 }
+
+/** The pad as one hit plays it: a note's own pitch is added to the pad's. */
+export const padForHit = (pad: Pad, h: { pitch?: number | undefined }): Pad =>
+  h.pitch ? { ...pad, pitch: Math.max(-48, Math.min(48, pad.pitch + h.pitch)) } : pad;
 
 /**
  * Hits whose effective position falls in [fromStep, toStep), for a timeline built from `sections`.
@@ -121,7 +127,14 @@ export function eventsInRange(
         if (lane && (lane.mute || (anySolo && !lane.solo))) continue;
         const at = base + effectiveStep(n, p.quantize, p.swing, pat.lengthSteps);
         if (at >= fromStep && at < toStep)
-          out.push({ noteId: n.id, padId: n.padId, velocity: n.velocity, at, ...(n.length ? { length: n.length } : {}) });
+          out.push({
+            noteId: n.id,
+            padId: n.padId,
+            velocity: n.velocity,
+            at,
+            ...(n.length ? { length: n.length } : {}),
+            ...(n.pitch ? { pitch: n.pitch } : {}),
+          });
       }
     }
   }

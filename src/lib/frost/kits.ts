@@ -15,6 +15,11 @@ export interface DrumDef {
   short: string;
   /** Pad volume (0..1) the drum starts at: a balanced kit sits below 0 dB with nothing adjusted. */
   level: number;
+  /**
+   * Pitched instruments only: the MIDI note the sound is rendered at. A hit's own `pitch` counts
+   * semitones from here, so one pad plays a whole bassline or melody.
+   */
+  rootMidi?: number;
   render: (sr: number) => Float32Array;
 }
 
@@ -420,7 +425,116 @@ const trap808: KitDef = {
   ],
 };
 
-export const KITS: KitDef[] = [westside, trap808];
+// ---------------------------------------------------------------- pitched instruments
+
+const hz = (midi: number) => 440 * Math.pow(2, (midi - 69) / 12);
+
+/** Plucked string (Karplus–Strong): a seeded noise burst circulating in a damped delay line. */
+function pluckString(sr: number, f: number, seconds: number, seed: number, damping: number, brightness: number): Float32Array {
+  const n = secs(seconds, sr);
+  const period = Math.max(2, Math.round(sr / f));
+  const line = lp(noise(period, seed), sr, brightness);
+  const out = new Float32Array(n);
+  let prev = 0;
+  for (let i = 0; i < n; i++) {
+    const j = i % period;
+    const v = line[j];
+    out[i] = v;
+    line[j] = damping * 0.5 * (v + prev);
+    prev = v;
+  }
+  return out;
+}
+
+/** Band-limited sawtooth by adding harmonics (clean at bass pitches). */
+function saw(n: number, sr: number, f: number): Float32Array {
+  const out = new Float32Array(n);
+  const harmonics = Math.max(1, Math.floor(sr / 2 / f) - 1);
+  for (let k = 1; k <= Math.min(harmonics, 40); k++) {
+    const a = 1 / k;
+    for (let i = 0; i < n; i++) out[i] += a * Math.sin((2 * Math.PI * f * k * i) / sr);
+  }
+  return out;
+}
+
+/** Attack-then-exponential-decay envelope. */
+function adEnv(n: number, sr: number, attack: number, decay: number): Float32Array {
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    out[i] = t < attack ? t / attack : Math.exp(-(t - attack) / decay);
+  }
+  return out;
+}
+
+/** Two-operator FM electric piano: a bell-like attack that mellows as the modulation fades. */
+function fmKeys(sr: number, f: number): Float32Array {
+  const n = secs(2.5, sr);
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    const index = 0.4 + 2.2 * Math.exp(-t / 0.25);
+    out[i] = Math.sin(2 * Math.PI * f * t + index * Math.sin(2 * Math.PI * f * t)) * Math.exp(-t / 0.9) * Math.min(1, t / 0.003);
+  }
+  return out;
+}
+
+/**
+ * Instruments to turn a hummed line into: rendered once at their root note and played at each
+ * hit's pitch, classic-sampler style (higher notes are a little shorter, as on an MPC).
+ */
+const instruments: KitDef = {
+  id: "instruments",
+  name: "Instruments",
+  blurb: "Pitched sounds for hummed basslines and melodies: each hit plays its own note.",
+  drums: [
+    { id: "808", name: "808 bass", short: "808", level: 0.75, rootMidi: 24, render: (sr) => eight08(sr, hz(24), 201) },
+    {
+      id: "sub",
+      name: "Sub bass",
+      short: "Sub",
+      level: 0.75,
+      rootMidi: 36,
+      render: (sr) => {
+        const n = secs(2.2, sr);
+        return finish(sat(mul(sine(n, sr, hz(36)), adEnv(n, sr, 0.008, 1.1)), 1.3), sr, 0.9, 30);
+      },
+    },
+    {
+      id: "bassgtr",
+      name: "Bass guitar",
+      short: "Bass",
+      level: 0.7,
+      rootMidi: 40,
+      render: (sr) => finish(lp(sat(pluckString(sr, hz(40), 2.2, 211, 0.998, 1800), 1.2), sr, 2400), sr, 0.9, 30),
+    },
+    {
+      id: "synthbass",
+      name: "Synth bass",
+      short: "Synth",
+      level: 0.6,
+      rootMidi: 36,
+      render: (sr) => {
+        const n = secs(1.8, sr);
+        return finish(sat(lp(mul(saw(n, sr, hz(36)), adEnv(n, sr, 0.005, 0.5)), sr, 700, 2), 1.6), sr, 0.9, 30);
+      },
+    },
+    { id: "keys", name: "Keys", short: "Keys", level: 0.55, rootMidi: 60, render: (sr) => finish(sat(fmKeys(sr, hz(60)), 1.1), sr, 0.85, 30) },
+    {
+      id: "pluck",
+      name: "Pluck",
+      short: "Pluck",
+      level: 0.55,
+      rootMidi: 60,
+      render: (sr) => finish(pluckString(sr, hz(60), 1.6, 221, 0.994, 6000), sr, 0.85, 30),
+    },
+  ],
+};
+
+export const KITS: KitDef[] = [westside, trap808, instruments];
+
+/** The pitched instruments (hum → bass / melody). */
+export const INSTRUMENTS = instruments;
 
 export function findDrum(kitId: string, drumId: string): { kit: KitDef; drum: DrumDef } | null {
   const kit = KITS.find((k) => k.id === kitId);

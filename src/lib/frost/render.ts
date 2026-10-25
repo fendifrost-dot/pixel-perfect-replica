@@ -10,6 +10,7 @@ import type { RenderService, RenderedFile } from "./services";
 import {
   eventsInRange,
   holdEnds,
+  padForHit,
   patternSections,
   sectionsLength,
   songSections,
@@ -78,8 +79,9 @@ async function renderHits(
   const off = new OfflineAudioContext({ numberOfChannels: 2, length: frames, sampleRate });
   const padById = new Map(p.pads.map((x) => [x.id, x]));
   for (const h of hits) {
-    const pad = padById.get(h.padId);
-    if (!pad) continue;
+    const base = padById.get(h.padId);
+    if (!base) continue;
+    const pad = padForHit(base, h);
     const ps = padSource(
       pad,
       p.slices.find((s) => s.id === pad.sliceId),

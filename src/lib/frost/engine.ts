@@ -13,12 +13,14 @@ import type {
   AudioImportService,
   KitService,
   LoopMode,
+  MicService,
+  MicTake,
   PlaybackService,
   SliceService,
   TempoService,
   TransportService,
 } from "./services";
-import { eventsInRange, patternSections, songSections, sectionsLength, stepDur } from "./timing";
+import { eventsInRange, padForHit, patternSections, songSections, sectionsLength, stepDur } from "./timing";
 import { CHOKE_FADE, MIN_RELEASE, padSource, startVoice, type VoiceHandle } from "./voice";
 import type { Pad, Project, Slice } from "./types";
 import { encodeWav24 } from "./wav";
@@ -418,7 +420,7 @@ export const transportService: TransportService = {
           const next = eventsInRange(p, sections, h.at + 1e-6, h.at + total + 1e-6, true).find((x) => x.padId === h.padId);
           stopAt = timeAt(s, Math.min(end, next ? next.at : h.at + total));
         }
-        trigger(pad, slice, h.velocity, p.bpm, Math.max(now, timeAt(s, h.at)), stopAt);
+        trigger(padForHit(pad, h), slice, h.velocity, p.bpm, Math.max(now, timeAt(s, h.at)), stopAt);
       }
       for (const [id, until] of s.suppressed) if (until < from) s.suppressed.delete(id);
       if (metronome()) {
@@ -484,3 +486,95 @@ export const aiSliceService: AiSliceService = {
 };
 
 export type { Pad, Project, Slice };
+
+// ---------------------------------------------------------------- microphone
+
+type AudioSessionNav = Navigator & { audioSession?: { type: string } };
+let mic: {
+  stream: MediaStream;
+  src: MediaStreamAudioSourceNode;
+  node: ScriptProcessorNode;
+  sink: GainNode;
+  chunks: Float32Array[];
+  startTime: number | null;
+  level: number;
+  sessionWas: string | null;
+} | null = null;
+
+/**
+ * Records the mic inside the same AudioContext that plays the beat, so every sample has a time on
+ * the playback clock. (ScriptProcessor rather than MediaRecorder: no codec, no start-up offset.)
+ */
+export const micService: MicService = {
+  availability() {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia)
+      return { available: false, reason: "This browser can't use the microphone here. Open the app in Safari (or from the Home Screen icon)." };
+    return { available: true };
+  },
+  async start() {
+    if (mic) return;
+    const ok = micService.availability();
+    if (!ok.available) throw new Error(ok.reason);
+    const nav = navigator as AudioSessionNav;
+    // iOS 17+: keep the beat playing through the speaker while the mic is open.
+    const sessionWas = nav.audioSession?.type ?? null;
+    if (nav.audioSession) nav.audioSession.type = "play-and-record";
+    let stream: MediaStream;
+    try {
+      // Echo cancellation keeps the beat coming out of the speaker out of the take.
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true } });
+    } catch (e) {
+      if (nav.audioSession && sessionWas) nav.audioSession.type = sessionWas;
+      const name = (e as Error).name;
+      throw new Error(
+        name === "NotAllowedError"
+          ? "Microphone access was blocked. Allow it for this site in Settings → Safari → Microphone, then try again."
+          : "The microphone couldn't be opened.",
+      );
+    }
+    const c = ac();
+    if (c.state !== "running") await c.resume().catch(() => {});
+    const src = c.createMediaStreamSource(stream);
+    const node = c.createScriptProcessor(2048, 1, 1);
+    const sink = c.createGain();
+    sink.gain.value = 0; // the processor must reach the output to run; keep it silent
+    const m = { stream, src, node, sink, chunks: [] as Float32Array[], startTime: null as number | null, level: 0, sessionWas };
+    node.onaudioprocess = (e) => {
+      const d = e.inputBuffer.getChannelData(0);
+      // this block was captured just before the callback: its first sample is one block ago
+      if (m.startTime == null) m.startTime = c.currentTime - d.length / c.sampleRate;
+      m.chunks.push(new Float32Array(d));
+      let s = 0;
+      for (let i = 0; i < d.length; i += 4) s += d[i] * d[i];
+      m.level = Math.min(1, Math.sqrt(s / (d.length / 4)) * 4);
+    };
+    src.connect(node);
+    node.connect(sink).connect(c.destination);
+    mic = m;
+  },
+  level: () => mic?.level ?? 0,
+  stop(): MicTake | null {
+    const m = mic;
+    mic = null;
+    if (!m) return null;
+    m.node.onaudioprocess = null;
+    try {
+      m.src.disconnect();
+      m.node.disconnect();
+      m.sink.disconnect();
+    } catch {
+      /* already gone */
+    }
+    for (const t of m.stream.getTracks()) t.stop();
+    const nav = navigator as AudioSessionNav;
+    if (nav.audioSession) nav.audioSession.type = m.sessionWas ?? "auto";
+    if (!m.chunks.length || m.startTime == null) return null;
+    const samples = new Float32Array(m.chunks.reduce((n, x) => n + x.length, 0));
+    let o = 0;
+    for (const x of m.chunks) {
+      samples.set(x, o);
+      o += x.length;
+    }
+    return { samples, sampleRate: ac().sampleRate, startTime: m.startTime };
+  },
+};
