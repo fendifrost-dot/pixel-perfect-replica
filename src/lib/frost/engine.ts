@@ -18,6 +18,7 @@ import type {
   PlaybackService,
   SliceService,
   TempoService,
+  KeyService,
   TransportService,
 } from "./services";
 import { eventsInRange, padForHit, patternSections, songSections, sectionsLength, stepDur } from "./timing";
@@ -25,6 +26,7 @@ import { CHOKE_FADE, MIN_RELEASE, padSource, startVoice, type VoiceHandle } from
 import type { Pad, Project, Slice } from "./types";
 import { encodeWav24 } from "./wav";
 import { validateAiSlices } from "./aiSlices";
+import { detectKey } from "./key";
 
 let ctx: AudioContext | null = null;
 export function ac(): AudioContext {
@@ -462,6 +464,20 @@ export const tempoService: TempoService = {
   suggestBpm(sourceId) {
     const b = audioStore.getBuffer(sourceId);
     return b ? suggestTempo(monoOf(b), b.sampleRate) : null;
+  },
+};
+
+const keys = new Map<string, ReturnType<typeof detectKey>>();
+export const keyService: KeyService = {
+  detect(sourceId, start, end) {
+    const b = audioStore.getBuffer(sourceId);
+    if (!b) return null;
+    const id = `${sourceId}|${start ?? ""}|${end ?? ""}|${b.length}`;
+    if (!keys.has(id)) {
+      if (keys.size > 200) keys.clear();
+      keys.set(id, detectKey(monoOf(b), b.sampleRate, start, end));
+    }
+    return keys.get(id) ?? null;
   },
 };
 

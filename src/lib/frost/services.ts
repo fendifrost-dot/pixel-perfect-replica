@@ -4,6 +4,7 @@
  */
 import type { Pad, Project, SourceAsset, Slice } from "./types";
 import type { AiSliceResult } from "./aiSlices";
+import type { KeyResult } from "./key";
 
 export type Availability = { available: true } | { available: false; reason: string };
 
@@ -73,6 +74,14 @@ export interface AiSliceService {
 export interface TempoService {
   /** Source tempo SUGGESTION from onset analysis; null when unclear. Never applied automatically. */
   suggestBpm(sourceId: string): { bpm: number; confidence: number } | null;
+}
+
+export interface KeyService {
+  /**
+   * Musical key of a recording, or of part of it (start/end in seconds), as it sounds at A = 440.
+   * Null when the audio isn't loaded or the part is too short / too unpitched to tell.
+   */
+  detect(sourceId: string, start?: number, end?: number): KeyResult | null;
 }
 
 export interface KitService {
