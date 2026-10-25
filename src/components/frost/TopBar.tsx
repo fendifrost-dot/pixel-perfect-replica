@@ -24,7 +24,7 @@ export function TopBar() {
   } = useFrost();
   const [projectsOpen, setProjectsOpen] = useState(false);
   const setBpm = (v: number) =>
-    commit((p) => ({ ...p, bpm: Math.min(300, Math.max(40, Math.round(v * 10) / 10)) }), {
+    commit((p) => ({ ...p, bpm: Math.min(300, Math.max(40, Math.round(v * 100) / 100)) }), {
       history: false,
     });
   // Keep partial input editable; commit a validated tempo only on Enter / blur.

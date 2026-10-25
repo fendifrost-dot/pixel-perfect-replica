@@ -104,7 +104,7 @@ export interface RenderedFile {
   frames: number;
   peak: number;
   clipped: number;
-  kind: "mix" | "stem";
+  kind: "mix" | "stem" | "midi";
 }
 
 export interface RenderService {
@@ -114,6 +114,8 @@ export interface RenderService {
    * fades; full level, centred); "original" = the untouched cut. `skipped` = pads not loaded here.
    */
   renderPadSamples(p: Project, mode: "pad" | "original", onProgress?: (msg: string) => void): Promise<{ files: RenderedFile[]; skipped: string[] }>;
+  /** A Hum session's layers (beat muted): one WAV each, their mix, and a MIDI file — all from the beat's bar 1. */
+  renderHumLayers(p: Project, onProgress?: (msg: string) => void): Promise<RenderedFile[]>;
 }
 
 /** One microphone take, in the playback clock (so it lines up with the beat). */

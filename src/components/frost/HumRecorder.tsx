@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Mic, Play, RotateCcw, Square, X } from "lucide-react";
+import { Mic, Play, RotateCcw, Square, Timer, X } from "lucide-react";
 import { useFrost, uid } from "@/lib/frost/store";
 import { ac, kitService, micService, playbackService, transportService } from "@/lib/frost/engine";
 import { recordOffset } from "@/lib/frost/device";
-import { stepDur } from "@/lib/frost/timing";
+import { effectiveStep, stepDur } from "@/lib/frost/timing";
 import { INSTRUMENTS, KITS, kitSourceId } from "@/lib/frost/kits";
 import { assignDrum, ensureLane, nextEmptyPad } from "@/lib/frost/kitActions";
 import { stepsToFit } from "@/lib/frost/ops";
@@ -35,6 +35,26 @@ const DRUM_KITS = KITS.filter((k) => BEATBOX_DRUMS[k.id]);
 /** First empty pad: the current bank first, then any bank. */
 const freePad = (p: Project) => nextEmptyPad(p, p.bank) ?? p.pads.find((x) => !x.sliceId) ?? null;
 
+/** Remove `padIds`' hits inside `region` (steps) of a pattern — before a section is recorded again. */
+function clearRegion(p: Project, patId: string, padIds: string[], region: { from: number; to: number }): Project {
+  const ids = new Set(padIds);
+  return {
+    ...p,
+    patterns: p.patterns.map((x) =>
+      x.id !== patId
+        ? x
+        : {
+            ...x,
+            notes: x.notes.filter((n) => {
+              if (!ids.has(n.padId)) return true;
+              const at = effectiveStep(n, p.quantize, p.swing, x.lengthSteps);
+              return at < region.from || at >= region.to;
+            }),
+          },
+    ),
+  };
+}
+
 /** Add hits to a pattern, making it long enough to hold them. */
 function addToPattern(p: Project, patId: string, hits: NoteEvent[]): Project {
   return {
@@ -50,9 +70,30 @@ function addToPattern(p: Project, patId: string, hits: NoteEvent[]): Project {
  * instrument (808, bass guitar, keys…), beatboxing becomes kick / snare / hat on a drum kit.
  * Everything is worked out on the phone; the recording itself is not kept.
  */
-export function HumRecorder({ pat, snap, onClose }: { pat: Pattern; snap: number; onClose: () => void }) {
-  const { project, commit, playing, togglePlay, repeat, notify } = useFrost();
-  const [mode, setMode] = useState<Mode>("melody");
+export function HumRecorder({
+  pat,
+  snap,
+  onClose,
+  region,
+  initialMode,
+  onStep,
+}: {
+  pat: Pattern;
+  snap: number;
+  onClose: () => void;
+  /** Record over just this part of the pattern (steps); it plays (and loops with Repeat) from its start. */
+  region?: { from: number; to: number } | undefined;
+  initialMode?: Mode | undefined;
+  /** Playhead updates while a region plays. */
+  onStep?: ((step: number) => void) | undefined;
+}) {
+  const { project, commit, playing, togglePlay, repeat, metronome, setMetronome, notify } = useFrost();
+  // read live, so turning the click on / off mid-take is heard straight away
+  const metroRef = useRef(metronome);
+  metroRef.current = metronome;
+  const [mode, setMode] = useState<Mode>(initialMode ?? "melody");
+  /** Over a region: replace what those sounds already play there (redo a section). */
+  const [replace, setReplace] = useState(true);
   const [phase, setPhase] = useState<"ready" | "recording" | "review">("ready");
   const [error, setError] = useState<string | null>(null);
   const [level, setLevel] = useState(0);
@@ -95,14 +136,18 @@ export function HumRecorder({ pat, snap, onClose }: { pat: Pattern; snap: number
     }
     let ownTransport = false;
     let storePlayback = false;
-    if (!transportService.isRunning()) {
+    if (!transportService.isRunning() && region) {
+      // play just the chosen section (the beat joins part-way), looping with Repeat
+      transportService.start(() => project, onStep ?? (() => {}), () => metroRef.current, "pattern", () => repeat, () => {}, region);
+      ownTransport = true;
+    } else if (!transportService.isRunning()) {
       const playable = new Set(project.pads.filter((x) => x.sliceId).map((x) => x.id));
       if (pat.notes.some((n) => playable.has(n.padId))) {
         await togglePlay(); // play the beat to hum over
         storePlayback = true;
       } else {
         // nothing to play yet: run the clock with the metronome so the take still lands in time
-        transportService.start(() => project, () => {}, () => true, "pattern", () => true, () => {});
+        transportService.start(() => project, () => {}, () => true, "pattern", () => true, () => {}); // a click is the only guide here
         ownTransport = true;
       }
     }
@@ -133,7 +178,12 @@ export function HumRecorder({ pat, snap, onClose }: { pat: Pattern; snap: number
   const stepAt = (sec: number) => {
     const t = take.current!, a = anchor.current!;
     const pos = a.pos + (t.startTime + sec - recordOffset.get() / 1000 - a.time) / stepDur(a.bpm);
-    return repeat ? ((pos % pat.lengthSteps) + pat.lengthSteps) % pat.lengthSteps : pos;
+    if (!repeat) return pos;
+    if (region) {
+      const len = region.to - region.from;
+      return region.from + ((((pos - region.from) % len) + len) % len);
+    }
+    return ((pos % pat.lengthSteps) + pat.lengthSteps) % pat.lengthSteps;
   };
   const placement = () => ({ stepAt, snap: snapOn ? snap : 0, makeId: uid });
 
@@ -166,12 +216,18 @@ export function HumRecorder({ pat, snap, onClose }: { pat: Pattern; snap: number
       let next: Project = project;
       let summary = "";
       if (mode === "melody") {
-        const pad = freePad(next);
-        if (!pad) throw new Error("Every pad is taken — empty one on Pads first.");
         const d = kitService.loadDrum(INSTRUMENTS.id, instrument);
         if (!d) throw new Error("That instrument isn't available.");
-        next = ensureLane(assignDrum(next, pad.id, d, uid()), pad.id);
+        // keep adding to the pad already playing this instrument in this pattern, else a new pad
+        const src = kitSourceId(INSTRUMENTS.id, instrument);
+        let pad = next.pads.find((x) => next.slices.find((s) => s.id === x.sliceId)?.sourceId === src && pat.notes.some((n) => n.padId === x.id)) ?? null;
+        if (!pad) {
+          pad = freePad(next);
+          if (!pad) throw new Error("Every pad is taken — empty one on Pads first.");
+          next = ensureLane(assignDrum(next, pad.id, d, uid()), pad.id);
+        }
         const hits = melodyHits(notes, pad.id, root, shift, placement());
+        if (region && replace) next = clearRegion(next, pat.id, [pad.id], region);
         next = addToPattern(next, pat.id, hits);
         summary = `${hits.length} note${hits.length === 1 ? "" : "s"} on pad ${pad.id} (${d.slice.name}).`;
       } else {
@@ -192,6 +248,7 @@ export function HumRecorder({ pat, snap, onClose }: { pat: Pattern; snap: number
           padFor[kind] = pad.id;
         }
         const hits = beatboxHits(beats, padFor, placement());
+        if (region && replace) next = clearRegion(next, pat.id, Object.values(padFor), region);
         next = addToPattern(next, pat.id, hits);
         summary = `${hits.length} drum hit${hits.length === 1 ? "" : "s"} added.`;
       }
@@ -213,6 +270,15 @@ export function HumRecorder({ pat, snap, onClose }: { pat: Pattern; snap: number
         <div className="flex items-center gap-2">
           <Mic className="size-4 text-primary" />
           <div className="eyebrow flex-1">Hum it · beatbox it</div>
+          <button
+            aria-label="Metronome"
+            aria-pressed={metronome}
+            title={metronome ? "Click on" : "Click off"}
+            className={cn("btn min-h-9 gap-1 px-2 text-xs", metronome && "btn-on")}
+            onClick={() => setMetronome(!metronome)}
+          >
+            <Timer className="size-4" /> Click
+          </button>
           <button aria-label="Close" className="btn size-9 min-h-9 px-0" onClick={() => (phase === "recording" ? stop() : onClose())}>
             <X className="size-4" />
           </button>
@@ -300,6 +366,12 @@ export function HumRecorder({ pat, snap, onClose }: { pat: Pattern; snap: number
                 </p>
                 <Segmented value={kit} onChange={setKit} options={DRUM_KITS.map((k) => ({ value: k.id, label: k.name }))} />
               </>
+            )}
+            {heard > 0 && region && (
+              <label className="flex items-center gap-2 text-xs">
+                <input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} />
+                Replace what {mode === "melody" ? "this instrument" : "these drums"} already play in this section
+              </label>
             )}
             {heard > 0 && (
               <label className="flex items-center gap-2 text-xs">

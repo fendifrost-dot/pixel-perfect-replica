@@ -155,4 +155,9 @@ export interface Project {
   currentPatternId: string;
   arrangement: ArrangementBlock[];
   export: ExportSettings;
+  /**
+   * Set when this project is a Hum session: a beat bounced from a DAW plays as one long hit
+   * (the backing pad) in `patternId`, and hummed / beatboxed layers are added over it.
+   */
+  humSession?: { patternId: string; backingPadId: string };
 }

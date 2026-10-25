@@ -389,7 +389,7 @@
 }
 .tempo-control input {
   color: var(--primary);
-  width: 64px;
+  width: 78px; /* room for a two-decimal tempo like 133.33 */
   background: transparent;
   font: 600 19px var(--font-mono);
   text-align: center;
@@ -1027,8 +1027,8 @@
     width: 32px;
   }
   .tempo-control input {
-    width: 52px;
-    font-size: 18px;
+    width: 66px;
+    font-size: 17px;
   }
   .tempo-control {
     margin-left: auto;

@@ -10,7 +10,7 @@ import { pullAll, pushProject, syncEnabled } from "./sync";
 import { keepView } from "./merge";
 import { audioStore } from "./audioStore";
 
-export type View = "sample" | "pads" | "beat" | "export";
+export type View = "sample" | "pads" | "beat" | "hum" | "export";
 /** "new" = a blank project nothing has been imported into yet (not saved). */
 export type SaveState = "new" | "saving" | "saved" | "error";
 
@@ -205,7 +205,7 @@ export function FrostProvider({ children }: { children: ReactNode }) {
       setProjectKey(key);
       currentKey.set(key);
       setSaveState(p.isDemo ? "new" : "saved");
-      setView(p.sources.length ? "pads" : "sample");
+      setView(p.humSession ? "hum" : p.sources.length ? "pads" : "sample");
       if (p.sources.some((s) => s.origin === "imported")) {
         setLoadingAudio(true);
         try {
