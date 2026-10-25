@@ -122,7 +122,8 @@ export async function renderProject(
   const files: RenderedFile[] = [];
   const channels: Float32Array[][] = [];
   const add = (name: string, ch: Float32Array[], kind: RenderedFile["kind"]) => {
-    const enc = encodeWav24(ch, sampleRate);
+    // tempo tag: the session BPM, so a DAW reads 132 instead of guessing from the length
+    const enc = encodeWav24(ch, sampleRate, { bpm: p.bpm, beats: (musicSec * p.bpm) / 60 });
     files.push({
       name,
       blob: new Blob([enc.bytes as Uint8Array<ArrayBuffer>], { type: "audio/wav" }),
@@ -217,7 +218,10 @@ export async function renderPadSamples(
       const out = await off.startRendering();
       ch = [out.getChannelData(0), out.getChannelData(1)];
     }
-    const enc = encodeWav24(ch, sampleRate);
+    // A fitted pad is a loop of known beats at the project tempo; anything else is a one-shot,
+    // tagged so a DAW doesn't guess a tempo from its length (a 0.45 s kick reads as 133.33 BPM).
+    const fitted = mode === "pad" && pad.lengthUnit !== "off";
+    const enc = encodeWav24(ch, sampleRate, fitted ? { bpm: p.bpm, beats: lengthBeats(pad) } : { bpm: p.bpm, oneShot: true });
     files.push({
       name: padSampleName(p, pad, slice.name, mode),
       blob: new Blob([enc.bytes as Uint8Array<ArrayBuffer>], { type: "audio/wav" }),

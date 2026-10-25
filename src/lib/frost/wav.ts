@@ -8,17 +8,30 @@ export interface EncodeResult {
   peak: number;
 }
 
-export function encodeWav24(channels: Float32Array[], sampleRate: number): EncodeResult {
+/**
+ * Tempo written into the file as an ACID chunk (read by many DAWs and samplers): the BPM, and
+ * either the length in beats (a loop that may follow the session tempo) or "one-shot" (a hit that
+ * must never be stretched — without it a DAW may guess a tempo from the clip's length).
+ */
+export interface WavTempo {
+  bpm: number;
+  beats?: number | undefined;
+  oneShot?: boolean | undefined;
+}
+
+export function encodeWav24(channels: Float32Array[], sampleRate: number, tempo?: WavTempo): EncodeResult {
   const nch = channels.length;
   const frames = channels[0]?.length ?? 0;
   const blockAlign = nch * 3;
   const dataBytes = frames * blockAlign;
-  const buf = new ArrayBuffer(44 + dataBytes);
+  const pad = dataBytes & 1; // chunks start on even bytes
+  const acidBytes = tempo ? 8 + 24 : 0;
+  const buf = new ArrayBuffer(44 + dataBytes + pad + acidBytes);
   const v = new DataView(buf);
   const ascii = (o: number, s: string) =>
     [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
   ascii(0, "RIFF");
-  v.setUint32(4, 36 + dataBytes, true);
+  v.setUint32(4, 36 + dataBytes + pad + acidBytes, true);
   ascii(8, "WAVE");
   ascii(12, "fmt ");
   v.setUint32(16, 16, true);
@@ -52,6 +65,19 @@ export function encodeWav24(channels: Float32Array[], sampleRate: number): Encod
       out[o++] = (s >> 16) & 0xff;
     }
   }
+  if (tempo) {
+    const a = 44 + dataBytes + pad;
+    ascii(a, "acid");
+    v.setUint32(a + 4, 24, true);
+    v.setUint32(a + 8, tempo.oneShot ? 0x01 : 0x00, true); // flags: bit 0 = one-shot
+    v.setUint16(a + 12, 60, true); // root note (C4; unused unless flagged)
+    v.setUint16(a + 14, 0x8000, true);
+    v.setFloat32(a + 16, 0, true);
+    v.setUint32(a + 20, Math.max(0, Math.round(tempo.beats ?? 0)), true);
+    v.setUint16(a + 24, 4, true); // meter 4/4
+    v.setUint16(a + 26, 4, true);
+    v.setFloat32(a + 28, tempo.bpm, true);
+  }
   return { bytes: out, clipped, peak };
 }
 
@@ -59,6 +85,8 @@ export interface DecodedWav {
   sampleRate: number;
   bitsPerSample: number;
   channels: Float32Array[];
+  /** ACID tempo chunk, when the file has one. */
+  tempo?: WavTempo;
 }
 
 /** Decodes 16/24-bit PCM and 32-bit float WAV. Enough to verify our own exports. */
@@ -69,6 +97,7 @@ export function decodeWav(bytes: Uint8Array): DecodedWav {
   let pos = 12;
   let fmt: { format: number; nch: number; sr: number; bits: number } | null = null;
   let data: [number, number] | null = null;
+  let tempo: WavTempo | undefined;
   while (pos + 8 <= bytes.length) {
     const id = tag(pos);
     const size = v.getUint32(pos + 4, true);
@@ -82,6 +111,8 @@ export function decodeWav(bytes: Uint8Array): DecodedWav {
         bits: v.getUint16(pos + 22, true),
       };
     } else if (id === "data") data = [pos + 8, Math.min(size, bytes.length - pos - 8)];
+    else if (id === "acid" && size >= 24 && pos + 32 <= bytes.length)
+      tempo = { bpm: v.getFloat32(pos + 28, true), beats: v.getUint32(pos + 20, true), oneShot: (v.getUint32(pos + 8, true) & 1) === 1 };
     pos += 8 + size + (size & 1);
   }
   if (!fmt || !data) throw new Error("WAV missing fmt or data chunk");
@@ -100,5 +131,5 @@ export function decodeWav(bytes: Uint8Array): DecodedWav {
       channels[c][i] = x;
     }
   }
-  return { sampleRate: fmt.sr, bitsPerSample: fmt.bits, channels };
+  return { sampleRate: fmt.sr, bitsPerSample: fmt.bits, channels, ...(tempo ? { tempo } : {}) };
 }

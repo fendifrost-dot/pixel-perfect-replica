@@ -47,11 +47,17 @@ export interface TransportService {
     mode: LoopMode,
     repeat?: () => boolean,
     onEnd?: () => void,
+    /**
+     * Pattern mode only: play just steps `from`–`to` of the current pattern (looping it with
+     * repeat). Long sounds that started earlier, like a whole beat, are joined part-way.
+     * `onStep` and `positionAt` still report positions in the whole pattern.
+     */
+    region?: { from: number; to: number },
   ): void;
   stop(): void;
   isRunning(): boolean;
   mode(): LoopMode;
-  /** Absolute position in steps at a context time (null when stopped). */
+  /** Absolute position in steps at a context time (null when stopped). With a region it counts from the region's start, unwrapped. */
   positionAt(time: number): number | null;
   /** Don't replay a just-recorded hit if it falls within `untilStep` (absolute). */
   suppress(noteId: string, untilStep: number): void;

@@ -21,7 +21,7 @@ import type {
   KeyService,
   TransportService,
 } from "./services";
-import { eventsInRange, padForHit, patternSections, songSections, sectionsLength, stepDur } from "./timing";
+import { eventsInRange, padForHit, patternSections, regionPattern, songSections, soundingAt, sectionsLength, stepDur } from "./timing";
 import { CHOKE_FADE, MIN_RELEASE, padSource, startVoice, type VoiceHandle } from "./voice";
 import type { Pad, Project, Slice } from "./types";
 import { encodeWav24 } from "./wav";
@@ -246,7 +246,7 @@ function cutVoice(v: VoiceHandle, at: number, fade: number) {
   }
 }
 
-function trigger(pad: Pad, slice: Slice | undefined, velocity: number, bpm: number, when: number, stopAt?: number): boolean {
+function trigger(pad: Pad, slice: Slice | undefined, velocity: number, bpm: number, when: number, stopAt?: number, skip = 0): boolean {
   const ps = padSource(pad, slice, bpm);
   if (!ps) return false;
   const c = ac();
@@ -254,7 +254,7 @@ function trigger(pad: Pad, slice: Slice | undefined, velocity: number, bpm: numb
     for (const list of voices.values())
       for (const v of list) if (v.pad.choke === pad.choke && v.end > when) cutVoice(v, when, CHOKE_FADE);
   }
-  const v = startVoice(c, c.destination, pad, ps, velocity, when, stopAt);
+  const v = startVoice(c, c.destination, pad, ps, velocity, when, stopAt, undefined, skip);
   const list = voices.get(pad.id) ?? [];
   list.push(v);
   voices.set(pad.id, list);
@@ -349,6 +349,8 @@ interface TState {
   suppressed: Map<string, number>;
   /** Where a play-once pass ends (steps); unset while repeating. */
   end?: number | undefined;
+  /** Playing just part of the pattern (positions inside the transport count from `from`). */
+  region?: { from: number; to: number } | undefined;
 }
 let ts: TState | null = null;
 const posAt = (s: TState, t: number) => s.anchorPos + (t - s.anchorTime) / stepDur(s.bpm);
@@ -357,11 +359,11 @@ const timeAt = (s: TState, pos: number) => s.anchorTime + (pos - s.anchorPos) * 
 export const transportService: TransportService = {
   isRunning: () => ts != null,
   mode: () => ts?.mode ?? "pattern",
-  positionAt: (t) => (ts ? posAt(ts, t) : null),
+  positionAt: (t) => (ts ? posAt(ts, t) + (ts.region?.from ?? 0) : null),
   suppress(noteId, untilStep) {
     ts?.suppressed.set(noteId, untilStep);
   },
-  start(getProject, onStep, metronome, mode, repeat = () => true, onEnd) {
+  start(getProject, onStep, metronome, mode, repeat = () => true, onEnd, region) {
     if (ts) return;
     let c = ac();
     const p0 = getProject();
@@ -373,6 +375,7 @@ export const transportService: TransportService = {
       bpm: p0.bpm,
       scheduledTo: 0,
       suppressed: new Map(),
+      region: mode === "pattern" && region && region.to > region.from ? region : undefined,
     };
     const tick = () => {
       const p = getProject();
@@ -389,7 +392,8 @@ export const transportService: TransportService = {
         s.anchorTime = now;
         s.bpm = p.bpm;
       }
-      const sections = s.mode === "song" ? songSections(p) : patternSections(p, 1);
+      const whole = s.mode === "song" ? songSections(p) : patternSections(p, 1);
+      const sections = s.region ? [{ pattern: regionPattern(p, whole[0].pattern, s.region.from, s.region.to), startStep: 0 }] : whole;
       const total = sectionsLength(sections);
       // Without repeat, play to the end of the pass the playhead is in, then stop.
       // (Fixed once, so it doesn't move on as the playhead crosses it.)
@@ -424,13 +428,23 @@ export const transportService: TransportService = {
         }
         trigger(padForHit(pad, h), slice, h.velocity, p.bpm, Math.max(now, timeAt(s, h.at)), stopAt);
       }
+      // Each pass of a region: join sounds that started before it (e.g. the beat file) part-way in.
+      if (s.region) {
+        const sd = stepDur(p.bpm);
+        for (let k = Math.max(0, Math.ceil(from / total - 1e-9)); k * total < to; k++)
+          for (const { note, skip } of soundingAt(p, whole[0].pattern, s.region.from)) {
+            const pad = p.pads.find((x) => x.id === note.padId);
+            if (!pad) continue;
+            trigger(padForHit(pad, note), p.slices.find((x) => x.id === pad.sliceId), note.velocity, p.bpm, Math.max(now, timeAt(s, k * total)), timeAt(s, Math.min(end, (k + 1) * total)), skip * sd);
+          }
+      }
       for (const [id, until] of s.suppressed) if (until < from) s.suppressed.delete(id);
       if (metronome()) {
         for (let b = Math.ceil(from / 4); b * 4 < to; b++) if (b >= 0) click(timeAt(s, b * 4), (b * 4) % 16 === 0);
       }
       for (let st = Math.max(0, Math.ceil(from)); st < to; st++) {
         const t = timeAt(s, st);
-        setTimeout(() => ts === s && onStep(st % total), Math.max(0, (t - now) * 1000));
+        setTimeout(() => ts === s && onStep((s.region?.from ?? 0) + (st % total)), Math.max(0, (t - now) * 1000));
       }
       s.scheduledTo = to;
     };

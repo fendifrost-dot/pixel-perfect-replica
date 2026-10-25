@@ -141,6 +141,39 @@ export function eventsInRange(
   return out.sort((a, b) => a.at - b.at || a.padId.localeCompare(b.padId));
 }
 
+/**
+ * Part of a pattern (steps `from`–`to`) as a pattern of its own, so a section can be played and
+ * looped. Positions are resolved once (quantize / swing applied) and kept exact.
+ */
+export function regionPattern(p: Project, pat: Pattern, from: number, to: number): Pattern {
+  const notes = [];
+  for (const n of pat.notes) {
+    const at = effectiveStep(n, p.quantize, p.swing, pat.lengthSteps);
+    if (at >= from && at < to) notes.push({ ...n, step: at - from, offset: 0, exact: true });
+  }
+  return { ...pat, lengthSteps: Math.max(0.5, to - from), notes };
+}
+
+/**
+ * Hits that start before `from` but are still sounding there (a long one-shot like a whole beat
+ * bounced from a DAW): playback that starts at `from` joins them part-way, `skip` steps in.
+ */
+export function soundingAt(p: Project, pat: Pattern, from: number): { note: NoteEvent; skip: number }[] {
+  if (from <= 0) return [];
+  const sd = stepDur(p.bpm);
+  const out: { note: NoteEvent; skip: number }[] = [];
+  for (const n of pat.notes) {
+    const at = effectiveStep(n, p.quantize, p.swing, pat.lengthSteps);
+    if (at >= from) continue;
+    const pad = p.pads.find((x) => x.id === n.padId);
+    const slice = p.slices.find((x) => x.id === pad?.sliceId);
+    if (!pad || !slice || pad.mode !== "oneshot") continue;
+    const end = n.length ? at + n.length : at + playPlan(padForHit(pad, n), slice, p.bpm).duration / sd;
+    if (end > from) out.push({ note: n, skip: from - at });
+  }
+  return out;
+}
+
 /** How a pad turns a slice into sound at the project tempo. */
 export interface PlayPlan {
   /** Playback rate for the (possibly pre-stretched) buffer. */
