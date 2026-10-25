@@ -15,6 +15,7 @@ export type View = "sample" | "pads" | "beat" | "export";
 export type SaveState = "new" | "saving" | "saved" | "error";
 
 /** A fresh, unsaved project. `isDemo` marks it as not-yet-started so autosave skips it until audio is imported. */
+const REPEAT_KEY = "frost-sampler:repeat";
 const freshProject = () => ({ ...createEmptyProject(), isDemo: true });
 
 interface Ctx {
@@ -34,6 +35,9 @@ interface Ctx {
   setRecording: (v: boolean) => void;
   metronome: boolean;
   setMetronome: (v: boolean) => void;
+  /** Loop the beat (on) or play it through once and stop (off, the default). */
+  repeat: boolean;
+  setRepeat: (v: boolean) => void;
   currentStep: number;
   notice: string | null;
   notify: (msg: string) => void;
@@ -64,6 +68,32 @@ export function FrostProvider({ children }: { children: ReactNode }) {
   const [loopMode, setLoopModeState] = useState<LoopMode>("pattern");
   const [recording, setRecording] = useState(false);
   const [metronome, setMetronome] = useState(false);
+  const [repeat, setRepeatState] = useState(false);
+  useEffect(() => {
+    try {
+      setRepeatState(localStorage.getItem(REPEAT_KEY) === "1");
+    } catch {
+      /* private mode: stays off */
+    }
+  }, []);
+  const setRepeat = useCallback((v: boolean) => {
+    setRepeatState(v);
+    try {
+      localStorage.setItem(REPEAT_KEY, v ? "1" : "0");
+    } catch {
+      /* not remembered */
+    }
+  }, []);
+  const repeatRef = useRef(repeat);
+  repeatRef.current = repeat;
+  const recordingRef = useRef(recording);
+  recordingRef.current = recording;
+  // Recording always loops so you can keep layering takes.
+  const repeatNow = () => repeatRef.current || recordingRef.current;
+  const ended = () => {
+    setPlaying(false);
+    setCurrentStep(-1);
+  };
   const [currentStep, setCurrentStep] = useState(-1);
   const [notice, setNotice] = useState<string | null>(null);
   const [projectKey, setProjectKey] = useState<string>(() => newKey());
@@ -291,7 +321,7 @@ export function FrostProvider({ children }: { children: ReactNode }) {
     const padHasAudio = new Set(p.pads.filter((x) => x.sliceId).map((x) => x.id));
     const hasHits = sections.some((s) => s.pattern.notes.some((n) => padHasAudio.has(n.padId)));
     if (hasHits) {
-      transportService.start(() => ref.current, setCurrentStep, () => metroRef.current, loopMode);
+      transportService.start(() => ref.current, setCurrentStep, () => metroRef.current, loopMode, repeatNow, ended);
       setPlaying(true);
       return;
     }
@@ -323,7 +353,7 @@ export function FrostProvider({ children }: { children: ReactNode }) {
       setLoopModeState(m);
       if (transportService.isRunning()) {
         transportService.stop();
-        transportService.start(() => ref.current, setCurrentStep, () => metroRef.current, m);
+        transportService.start(() => ref.current, setCurrentStep, () => metroRef.current, m, repeatNow, ended);
       }
     },
     [],
@@ -335,7 +365,7 @@ export function FrostProvider({ children }: { children: ReactNode }) {
     <FrostContext.Provider
       value={{
         project, commit, replace, undo, canUndo: past.length > 0, view, setView, playing, togglePlay, loopMode, setLoopMode,
-        recording, setRecording, metronome, setMetronome, currentStep, notice, notify, projectKey, saveState, loadingAudio,
+        recording, setRecording, metronome, setMetronome, repeat, setRepeat, currentStep, notice, notify, projectKey, saveState, loadingAudio,
         audioVersion, bumpAudio: () => setAudioVersion((v) => v + 1), openProject, newProject, syncNow, syncTick,
       }}
     >

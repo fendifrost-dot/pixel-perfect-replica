@@ -343,6 +343,8 @@ interface TState {
   bpm: number;
   scheduledTo: number;
   suppressed: Map<string, number>;
+  /** Where a play-once pass ends (steps); unset while repeating. */
+  end?: number | undefined;
 }
 let ts: TState | null = null;
 const posAt = (s: TState, t: number) => s.anchorPos + (t - s.anchorTime) / stepDur(s.bpm);
@@ -355,7 +357,7 @@ export const transportService: TransportService = {
   suppress(noteId, untilStep) {
     ts?.suppressed.set(noteId, untilStep);
   },
-  start(getProject, onStep, metronome, mode) {
+  start(getProject, onStep, metronome, mode, repeat = () => true, onEnd) {
     if (ts) return;
     let c = ac();
     const p0 = getProject();
@@ -385,7 +387,20 @@ export const transportService: TransportService = {
       }
       const sections = s.mode === "song" ? songSections(p) : patternSections(p, 1);
       const total = sectionsLength(sections);
-      const to = posAt(s, now + LOOKAHEAD);
+      // Without repeat, play to the end of the pass the playhead is in, then stop.
+      // (Fixed once, so it doesn't move on as the playhead crosses it.)
+      if (repeat()) s.end = undefined;
+      else if (s.end == null && total) s.end = (Math.floor(Math.max(0, posAt(s, now)) / total) + 1) * total;
+      const end = s.end ?? Infinity;
+      if (total && s.scheduledTo >= end) {
+        if (now >= timeAt(s, end)) {
+          clearInterval(s.timer);
+          if (ts === s) ts = null;
+          onEnd?.();
+        }
+        return;
+      }
+      const to = Math.min(end, posAt(s, now + LOOKAHEAD));
       if (!total || to <= s.scheduledTo) return;
       const from = s.scheduledTo;
       for (const h of eventsInRange(p, sections, from, to, true)) {
@@ -401,7 +416,7 @@ export const transportService: TransportService = {
         if (h.length) stopAt = timeAt(s, h.at + h.length);
         else if (pad.mode !== "oneshot") {
           const next = eventsInRange(p, sections, h.at + 1e-6, h.at + total + 1e-6, true).find((x) => x.padId === h.padId);
-          stopAt = timeAt(s, next ? next.at : h.at + total);
+          stopAt = timeAt(s, Math.min(end, next ? next.at : h.at + total));
         }
         trigger(pad, slice, h.velocity, p.bpm, Math.max(now, timeAt(s, h.at)), stopAt);
       }

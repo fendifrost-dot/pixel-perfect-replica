@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, Circle, Minus, Play, Plus, Square, Timer, Undo2 } from "lucide-react";
+import { ChevronDown, Circle, Minus, Play, Plus, Repeat, Square, Timer, Undo2 } from "lucide-react";
 import { useFrost } from "@/lib/frost/store";
 import { ProjectsSheet } from "./ProjectsSheet";
 import { cn } from "@/lib/utils";
@@ -14,6 +14,8 @@ export function TopBar() {
     setRecording,
     metronome,
     setMetronome,
+    repeat,
+    setRepeat,
     undo,
     canUndo,
     saveState,
@@ -102,6 +104,15 @@ export function TopBar() {
           >
             <Timer className="size-5" />
           </button>
+          <button
+            aria-label="Repeat"
+            title={repeat ? "Repeat on: the beat loops" : "Repeat off: plays once, then stops"}
+            aria-pressed={repeat}
+            onClick={() => setRepeat(!repeat)}
+            className={cn("transport-icon", repeat && "btn-on")}
+          >
+            <Repeat className="size-4" />
+          </button>
           <span className="transport-divider" />
           <button
             aria-label="Undo"
@@ -117,7 +128,9 @@ export function TopBar() {
           className="transport-position"
           aria-label={`${loopMode === "song" ? "Song" : "Pattern"} transport`}
         >
-          <span className="eyebrow">{loopMode === "song" ? "Song" : "Pattern loop"}</span>
+          <span className="eyebrow">{loopMode === "song" ? "Song" : "Pattern"}
+            {repeat ? " · repeat" : " · once"}
+          </span>
           <span className="position-readout" aria-hidden="true">
             {String(Math.floor(Math.max(0, currentStep) / 16) + 1).padStart(2, "0")}
             <b>:</b>
