@@ -6,7 +6,6 @@ import { kitService, playbackService } from "@/lib/frost/engine";
 import { KITS, kitSourceId } from "@/lib/frost/kits";
 import { assignDrum, ensureLane, nextEmptyPad } from "@/lib/frost/kitActions";
 import { makePad } from "@/lib/frost/demo";
-import { Segmented } from "./controls";
 import { cn } from "@/lib/utils";
 
 /**
@@ -54,7 +53,13 @@ export function DrumPicker({ padId, onClose }: { padId?: string | undefined; onC
             <X className="size-4" />
           </button>
         </div>
-        <Segmented value={kitId} onChange={setKitId} options={KITS.map((k) => ({ value: k.id, label: k.name }))} />
+        <div className="flex gap-1 overflow-x-auto pb-1" role="tablist" aria-label="Kits">
+          {KITS.map((k) => (
+            <button key={k.id} role="tab" aria-selected={k.id === kitId} className={cn("btn min-h-9 shrink-0 px-3 text-xs", k.id === kitId && "btn-on")} onClick={() => setKitId(k.id)}>
+              {k.name}
+            </button>
+          ))}
+        </div>
         <p className="mb-3 mt-1 px-1 text-[11px] text-muted-foreground">{kit.blurb} Tap to hear, Add to put it on a pad.</p>
         <ul className="space-y-1">
           {kit.drums.map((d) => {

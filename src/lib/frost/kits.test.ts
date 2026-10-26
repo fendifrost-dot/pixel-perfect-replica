@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { KITS, findDrum, kitSourceId, parseKitSourceId } from "./kits";
 import { detectOnsets } from "./analysis";
+import { detectPitch } from "./key";
 
 describe("built-in kits", () => {
   const sr = 44100;
@@ -12,12 +13,15 @@ describe("built-in kits", () => {
         // drums are short hits; pitched instruments sustain so a held bass note can ring
         expect(x.length / sr, `${kit.id}/${d.id} length`).toBeLessThanOrEqual(d.rootMidi != null ? 3 : 1.6);
         let peak = 0,
-          energy = 0;
+          energy = 0,
+          finite = true;
         for (const v of x) {
-          expect(Number.isFinite(v)).toBe(true);
+          finite &&= Number.isFinite(v);
           peak = Math.max(peak, Math.abs(v));
           energy += v * v;
         }
+        // one assertion per drum (not per sample): the same check, fast enough for 100 drums
+        expect(finite, `${kit.id}/${d.id} finite`).toBe(true);
         expect(peak, `${kit.id}/${d.id} peak`).toBeGreaterThan(0.8);
         expect(peak, `${kit.id}/${d.id} peak`).toBeLessThanOrEqual(1);
         expect(energy / x.length, `${kit.id}/${d.id} energy`).toBeGreaterThan(1e-4);
@@ -31,7 +35,9 @@ describe("built-in kits", () => {
       for (const d of kit.drums) {
         const a = d.render(sr),
           b = d.render(sr);
-        expect(a).toEqual(b);
+        // compared sample by sample (a deep-equal of long arrays is very slow), still exact
+        expect(b.length, `${kit.id}/${d.id}`).toBe(a.length);
+        expect(a.findIndex((v, i) => !Object.is(v, b[i])), `${kit.id}/${d.id} first difference`).toBe(-1);
       }
   });
 
@@ -47,6 +53,17 @@ describe("built-in kits", () => {
         expect(Math.abs(on[0] - 0.2), `${kit.id}/${d.id} position`).toBeLessThan(d.id === "clap" ? 0.04 : 0.01);
       }
   });
+
+  it("every Metro-style 808 really sounds at its root note (C1), so a sampler maps it right", () => {
+    const kit = KITS.find((k) => k.id === "metro808")!;
+    expect(kit.drums).toHaveLength(30);
+    expect(KITS.find((k) => k.id === "drekicks")!.drums).toHaveLength(20);
+    for (const d of kit.drums) {
+      const p = detectPitch(d.render(sr), sr);
+      expect(p, d.id).not.toBeNull();
+      expect(Math.abs(p! - d.rootMidi!), `${d.id} pitch`).toBeLessThan(0.6);
+    }
+  }, 60_000);
 
   it("has unique ids and round-trips source ids", () => {
     const ids = new Set<string>();

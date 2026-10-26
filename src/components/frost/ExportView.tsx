@@ -10,6 +10,8 @@ import type { ExportSettings } from "@/lib/frost/types";
 import { Segmented } from "./controls";
 import { cn } from "@/lib/utils";
 import { FileList } from "./FileList";
+import { KITS } from "@/lib/frost/kits";
+import { buildSamplerPack, isPitchedKit } from "@/lib/frost/samplerPack";
 
 const dbfs = (x: number) => (x <= 0 ? "−∞" : (20 * Math.log10(x)).toFixed(1)) + " dB";
 
@@ -61,6 +63,28 @@ export function ExportView() {
     } finally {
       setBusy(null);
     }
+  };
+
+  // Kits as sampler instruments for the DAW (.zip of WAVs + Decent Sampler presets).
+  const [packId, setPackId] = useState("metro808");
+  const [packFiles, setPackFiles] = useState<RenderedFile[]>([]);
+  const packKit = KITS.find((k) => k.id === packId);
+  const exportPack = () => {
+    if (!packKit) return;
+    setBusy("Rendering sounds…");
+    setPackFiles([]);
+    // let the button show its state before the (blocking) render
+    setTimeout(() => {
+      try {
+        const { fileName, bytes } = buildSamplerPack(packKit, ex.sampleRate);
+        setPackFiles([{ name: fileName, blob: new Blob([bytes as Uint8Array<ArrayBuffer>], { type: "application/zip" }), frames: 0, peak: 0, clipped: 0, kind: "stem" }]);
+        notify(`${packKit.name} ready — save it to your Mac and unzip.`);
+      } catch (e) {
+        notify((e as Error).message);
+      } finally {
+        setBusy(null);
+      }
+    }, 30);
   };
 
   // Pad samples: every pad's sound as its own WAV, no beat needed.
@@ -210,6 +234,31 @@ export function ExportView() {
           {busy ?? (padCount ? `Export ${padCount} pad sample${padCount === 1 ? "" : "s"}` : "No pads have a sound yet")}
         </button>
         {padFiles.length > 0 && <FileList files={padFiles} title={`${project.name} pads`} />}
+      </section>
+
+      <section className="panel space-y-3" aria-label="Sounds for your DAW">
+        <div className="eyebrow">Sounds for your DAW</div>
+        <p className="text-[11px] text-muted-foreground">
+          Any built-in kit as a playable instrument for LUNA: the WAVs plus presets for the free Decent Sampler plug-in, in one .zip.
+          {packKit && isPitchedKit(packKit)
+            ? " Each sound plays on every key, one note at a time like a real 808 line — edit the notes and their lengths in LUNA's piano roll."
+            : " One sound per key from C1 (MIDI 36) up — pick a sound by its note in LUNA's piano roll."}
+        </p>
+        <select className="field w-full text-sm" aria-label="Kit to export" value={packId} onChange={(e) => setPackId(e.target.value)}>
+          {KITS.map((k) => (
+            <option key={k.id} value={k.id}>
+              {k.name} ({k.drums.length})
+            </option>
+          ))}
+        </select>
+        <button className="btn btn-primary h-12 w-full" disabled={!!busy || !packKit} onClick={exportPack}>
+          {busy ?? `Download ${packKit?.name ?? ""} for LUNA (.zip)`}
+        </button>
+        {packFiles.length > 0 && <FileList files={packFiles} title={packFiles[0].name} />}
+        <p className="text-[11px] text-muted-foreground">
+          On your Mac: install Decent Sampler (free), unzip, then in LUNA put Decent Sampler on an instrument track and load a .dspreset
+          from the folder. The README inside has the steps.
+        </p>
       </section>
 
       <section className="panel space-y-3">

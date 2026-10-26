@@ -183,7 +183,7 @@ export function rootShift(midi: number, to: Pick<KeyResult, "tonic">): number {
 export function detectPitch(x: Float32Array, sr: number, start = 0, end = x.length / sr): number | null {
   // 8 kHz copy is plenty for a drum's fundamental (down to ~25 Hz)
   const k = Math.max(1, Math.floor(sr / 8000));
-  const a = Math.floor((start + 0.015) * sr), b = Math.min(x.length, Math.floor(Math.min(end, start + 0.6) * sr));
+  const a = Math.floor((start + 0.015) * sr), b = Math.min(x.length, Math.floor(Math.min(end, start + 1.2) * sr));
   const n = Math.floor((b - a) / k);
   if (n <= 0) return null;
   const y = new Float32Array(n);
@@ -204,6 +204,8 @@ export function detectPitch(x: Float32Array, sr: number, start = 0, end = x.leng
     if (f) pitches.push(69 + 12 * Math.log2(f / 440));
   }
   if (pitches.length < 2) return null;
+  // a drum's note is where it settles: an 808's glide down from a higher start is skipped
+  pitches.splice(0, Math.floor(pitches.length / 2));
   pitches.sort((p, q) => p - q);
   const med = pitches[Math.floor(pitches.length / 2)];
   // most frames must agree (within a semitone) for it to count as one clear note

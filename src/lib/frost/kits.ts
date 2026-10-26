@@ -531,7 +531,168 @@ const instruments: KitDef = {
   ],
 };
 
-export const KITS: KitDef[] = [westside, trap808, instruments];
+// ---------------------------------------------------------------- Metro-style 808s
+
+interface Sub808 {
+  /** Seconds the 808 lasts (the file length). */
+  len: number;
+  /** Amplitude decay time constant (s) after a short hold. */
+  decay: number;
+  hold: number;
+  /** Pitch starts this many times higher and glides down… */
+  drop: number;
+  /** …with this time constant (s). */
+  glide: number;
+  /** Second-harmonic level: makes the 808 audible on small speakers. */
+  harm: number;
+  /** Kick layered on the attack (0 = none). */
+  kick: number;
+  /** High click on the attack. */
+  click: number;
+  /** Saturation drive (1 = clean). */
+  drive: number;
+  /** Extra distortion stage, like a blown speaker (0 = none). */
+  grit: number;
+  seed: number;
+}
+
+/** One trap 808 at C1: a gliding sub, optional kick layer and click, saturation and grit. */
+function metro808(sr: number, o: Sub808): Float32Array {
+  const n = secs(o.len, sr);
+  const f = hz(24);
+  const body = add(sweep(n, sr, f * o.drop, f, o.glide), gain(sweep(n, sr, f * o.drop, f, o.glide, 2), o.harm));
+  let x = mul(body, env(n, sr, o.decay, o.hold));
+  if (o.kick) x = add(x, mul(sweep(n, sr, 190, 55, 0.025), env(n, sr, 0.07), o.kick));
+  if (o.click) x = add(x, mul(hp(noise(n, o.seed), sr, 3000), env(n, sr, 0.0025), o.click));
+  x = sat(x, o.drive);
+  if (o.grit) x = add(gain(sat(hp(x, sr, 35), o.grit), 0.85), gain(lp(x, sr, 110), 0.55));
+  return finish(lp(x, sr, 7000), sr, 0.9, 40);
+}
+
+const METRO_808S: [string, Partial<Sub808>][] = [
+  // long and clean
+  ["Long Clean", { len: 2.8, decay: 1.2, drop: 1.6, glide: 0.03 }],
+  ["Deep Sub", { len: 2.6, decay: 1.0, drop: 1.3, glide: 0.02, harm: 0.05 }],
+  ["Smooth Glide", { len: 2.8, decay: 1.1, drop: 2.6, glide: 0.07 }],
+  ["Warm Long", { len: 2.5, decay: 0.9, drop: 1.8, glide: 0.035, drive: 1.6 }],
+  ["Hollow Sub", { len: 2.4, decay: 0.85, drop: 1.4, glide: 0.025, harm: 0.4 }],
+  ["Round Long", { len: 2.7, decay: 1.05, drop: 2.0, glide: 0.04, drive: 1.3, harm: 0.2 }],
+  // punchy: a kick on the front
+  ["Punch", { len: 1.8, decay: 0.6, drop: 2.5, glide: 0.03, kick: 0.7, click: 0.25 }],
+  ["Knock", { len: 1.6, decay: 0.5, drop: 3.0, glide: 0.02, kick: 0.9, click: 0.35, drive: 1.8 }],
+  ["Hard Hitter", { len: 2.0, decay: 0.7, drop: 2.8, glide: 0.025, kick: 0.8, click: 0.3, drive: 2.4 }],
+  ["Thump", { len: 1.7, decay: 0.55, drop: 2.2, glide: 0.035, kick: 1.0, drive: 1.5 }],
+  ["Bounce", { len: 1.4, decay: 0.42, drop: 3.4, glide: 0.018, kick: 0.6, click: 0.2 }],
+  ["Slap", { len: 1.5, decay: 0.45, drop: 3.8, glide: 0.015, kick: 0.75, click: 0.5, drive: 2.0 }],
+  // distorted
+  ["Dirty", { len: 2.2, decay: 0.8, drop: 2.0, glide: 0.03, drive: 3.0 }],
+  ["Fuzz", { len: 2.4, decay: 0.9, drop: 1.8, glide: 0.03, drive: 2.0, grit: 4 }],
+  ["Crunch", { len: 1.9, decay: 0.65, drop: 2.6, glide: 0.025, drive: 2.5, grit: 3, kick: 0.4 }],
+  ["Overdrive", { len: 2.3, decay: 0.85, drop: 2.2, glide: 0.04, drive: 4.0 }],
+  ["Blown", { len: 2.0, decay: 0.75, drop: 2.4, glide: 0.03, drive: 3.0, grit: 6 }],
+  ["Grit", { len: 2.1, decay: 0.7, drop: 1.9, glide: 0.035, drive: 2.2, grit: 2.5, harm: 0.3 }],
+  // dark sliding tails
+  ["Dark Slide", { len: 2.9, decay: 1.3, drop: 3.5, glide: 0.12 }],
+  ["Midnight", { len: 2.8, decay: 1.2, drop: 2.8, glide: 0.09, harm: 0.05 }],
+  ["Haunt", { len: 2.9, decay: 1.25, drop: 4.0, glide: 0.15, drive: 1.4 }],
+  ["Cavern", { len: 2.7, decay: 1.1, drop: 2.4, glide: 0.1, harm: 0.08, drive: 1.2 }],
+  ["Night Drive", { len: 2.8, decay: 1.15, drop: 3.0, glide: 0.11, drive: 2.0 }],
+  ["Phantom", { len: 2.9, decay: 1.3, drop: 3.2, glide: 0.13, harm: 0.25 }],
+  // short and tight
+  ["Tight", { len: 0.9, decay: 0.25, drop: 2.5, glide: 0.02, kick: 0.5 }],
+  ["Short Bounce", { len: 0.8, decay: 0.22, drop: 3.0, glide: 0.018, kick: 0.6, click: 0.2 }],
+  ["Pluck", { len: 0.7, decay: 0.18, drop: 4.0, glide: 0.012, click: 0.4 }],
+  ["Stab", { len: 0.6, decay: 0.15, drop: 2.2, glide: 0.02, drive: 2.5, kick: 0.5 }],
+  ["Click Short", { len: 0.8, decay: 0.24, drop: 2.0, glide: 0.025, click: 0.7 }],
+  ["Rubber", { len: 1.0, decay: 0.3, drop: 3.6, glide: 0.04, harm: 0.35 }],
+];
+
+const metro808s: KitDef = {
+  id: "metro808",
+  name: "Metro-style 808s",
+  blurb: "30 trap 808s, all tuned to C1: long, punchy, distorted, sliding, short. Play them as notes.",
+  drums: METRO_808S.map(([name, o], i) => ({
+    id: `m${String(i + 1).padStart(2, "0")}`,
+    name: `808 ${String(i + 1).padStart(2, "0")} ${name}`,
+    short: `808 ${i + 1}`,
+    level: 0.75,
+    rootMidi: 24,
+    render: (sr: number) =>
+      metro808(sr, { len: 2, decay: 0.8, hold: 0.04, drop: 2, glide: 0.03, harm: 0.15, kick: 0, click: 0.12, drive: 1.3, grit: 0, seed: 300 + i, ...o }),
+  })),
+};
+
+// ---------------------------------------------------------------- Dre-style kicks
+
+interface KickSpec {
+  len: number;
+  /** Body: pitch sweep from `f0` down to `f1` Hz with time constant `tau`, decaying over `decay`. */
+  f0: number;
+  f1: number;
+  tau: number;
+  decay: number;
+  /** Beater click: band-passed noise centred around `clickHz`. */
+  click: number;
+  clickHz: number;
+  /** Low "thud" noise under the body. */
+  thud: number;
+  drive: number;
+  /** Top-end roll-off (dusty / vinyl kicks sit lower). */
+  top: number;
+  /** Short room (0 = dry). */
+  room: number;
+  seed: number;
+}
+
+/** A West Coast kick: punchy round body, beater click, tape-style saturation, optional room. */
+function dreKick(sr: number, k: KickSpec): Float32Array {
+  const n = secs(k.len, sr);
+  const body = mul(sweep(n, sr, k.f0, k.f1, k.tau), env(n, sr, k.decay), 1.1);
+  const click = mul(bp(noise(n, k.seed), sr, k.clickHz * 0.6, k.clickHz * 1.6), env(n, sr, 0.004), k.click);
+  const thud = mul(lp(noise(n, k.seed + 1), sr, 180), env(n, sr, 0.03), k.thud);
+  let x = lp(sat(add(body, click, thud), k.drive), sr, k.top);
+  if (k.room) x = room(x, sr, 0.6, k.room, 0.25);
+  return finish(x, sr, 0.9, 6);
+}
+
+const DRE_KICKS: [string, Partial<KickSpec>][] = [
+  ["Hard Knock", { f0: 190, f1: 55, tau: 0.03, decay: 0.2, click: 0.6, clickHz: 2500, drive: 2.6 }],
+  ["Studio Thud", { f0: 150, f1: 52, tau: 0.035, decay: 0.24, click: 0.3, thud: 0.5, drive: 2.0 }],
+  ["Round", { f0: 140, f1: 50, tau: 0.04, decay: 0.3, click: 0.2, drive: 1.6 }],
+  ["Punch Tight", { f0: 200, f1: 60, tau: 0.022, decay: 0.14, click: 0.55, clickHz: 3000, drive: 2.4 }],
+  ["Low Boom", { f0: 120, f1: 45, tau: 0.05, decay: 0.36, click: 0.15, drive: 1.8, len: 0.7 }],
+  ["Snappy", { f0: 220, f1: 62, tau: 0.018, decay: 0.12, click: 0.75, clickHz: 3500, drive: 2.2 }],
+  ["Dusty", { f0: 160, f1: 54, tau: 0.03, decay: 0.22, click: 0.4, drive: 2.8, top: 4500 }],
+  ["Vinyl", { f0: 150, f1: 50, tau: 0.035, decay: 0.26, click: 0.35, thud: 0.3, drive: 2.4, top: 3800 }],
+  ["Fat", { f0: 170, f1: 48, tau: 0.04, decay: 0.32, click: 0.3, thud: 0.4, drive: 3.0 }],
+  ["Classic", { f0: 175, f1: 56, tau: 0.028, decay: 0.2, click: 0.5, clickHz: 2200, drive: 2.0 }],
+  ["Deep Pocket", { f0: 130, f1: 47, tau: 0.045, decay: 0.34, click: 0.25, drive: 2.0, len: 0.7 }],
+  ["Slam", { f0: 210, f1: 58, tau: 0.025, decay: 0.18, click: 0.65, thud: 0.4, drive: 3.4 }],
+  ["Warm", { f0: 145, f1: 53, tau: 0.035, decay: 0.25, click: 0.2, drive: 1.5, top: 6000 }],
+  ["Room Kick", { f0: 165, f1: 54, tau: 0.03, decay: 0.2, click: 0.45, drive: 2.2, room: 0.25 }],
+  ["Big Room", { f0: 155, f1: 50, tau: 0.035, decay: 0.24, click: 0.4, drive: 2.0, room: 0.4, len: 0.7 }],
+  ["Gritty", { f0: 185, f1: 57, tau: 0.026, decay: 0.19, click: 0.5, drive: 4.0, top: 7000 }],
+  ["Soft Thump", { f0: 125, f1: 50, tau: 0.04, decay: 0.22, click: 0.1, thud: 0.6, drive: 1.4 }],
+  ["Bump", { f0: 180, f1: 60, tau: 0.03, decay: 0.16, click: 0.45, clickHz: 1800, drive: 2.3 }],
+  ["Heavy", { f0: 200, f1: 46, tau: 0.04, decay: 0.3, click: 0.5, thud: 0.5, drive: 3.2, len: 0.7 }],
+  ["West Coast", { f0: 170, f1: 55, tau: 0.03, decay: 0.21, click: 0.55, clickHz: 2600, thud: 0.25, drive: 2.5, room: 0.15 }],
+];
+
+const dreKicks: KitDef = {
+  id: "drekicks",
+  name: "Dre-style kicks",
+  blurb: "20 punchy, round West Coast kicks — tight, dusty, roomy, heavy.",
+  drums: DRE_KICKS.map(([name, k], i) => ({
+    id: `k${String(i + 1).padStart(2, "0")}`,
+    name: `Kick ${String(i + 1).padStart(2, "0")} ${name}`,
+    short: `Kick ${i + 1}`,
+    level: 0.8,
+    render: (sr: number) =>
+      dreKick(sr, { len: 0.55, f0: 170, f1: 54, tau: 0.03, decay: 0.22, click: 0.4, clickHz: 2500, thud: 0, drive: 2.2, top: 9000, room: 0, seed: 400 + i * 3, ...k }),
+  })),
+};
+
+export const KITS: KitDef[] = [westside, trap808, metro808s, dreKicks, instruments];
 
 /** The pitched instruments (hum → bass / melody). */
 export const INSTRUMENTS = instruments;
