@@ -4,6 +4,7 @@
  * assistant can act on. No I/O, no Web Audio — runs on the server.
  */
 import { generateBeatGrid } from "./analysis";
+import { keyName, parseKey } from "./key";
 import { createEmptyProject } from "./demo";
 import { assignDrum, ensureLane } from "./kitActions";
 import { findDrum, kitSourceId, KITS } from "./kits";
@@ -53,6 +54,7 @@ export function summarize(p: Project) {
   return {
     name: p.name,
     bpm: p.bpm,
+    beatKey: p.key ? keyName(p.key.tonic, p.key.mode) : null,
     feel: { quantize: p.quantize, swing: p.swing },
     recordings: p.sources.map((s) => ({
       id: s.id,
@@ -91,6 +93,7 @@ export function summarize(p: Project) {
           plays: x.mode === "oneshot" ? "whole" : x.mode === "gate" ? "held" : "loop",
           chokeGroup: x.choke ?? 0,
           reverse: x.reverse,
+          ...(x.keepSpeed ? { keepSpeed: true } : {}),
           fadeInMs: Math.round(x.attack * 1000),
           fadeOutMs: Math.round(x.release * 1000),
         };
@@ -133,6 +136,8 @@ export interface ProjectFields {
   quantize?: Project["quantize"] | undefined;
   swing?: number | undefined;
   bank?: Bank | undefined;
+  /** The beat's key, e.g. "E minor" ("" clears it). Pads can be matched to it. */
+  beatKey?: string | undefined;
 }
 export function setProjectFields(p: Project, f: ProjectFields): Project {
   const out = { ...p };
@@ -144,6 +149,14 @@ export function setProjectFields(p: Project, f: ProjectFields): Project {
     out.swing = Math.round(f.swing);
   }
   if (f.bank != null) out.bank = f.bank;
+  if (f.beatKey != null) {
+    if (!f.beatKey.trim()) delete out.key;
+    else {
+      const k = parseKey(f.beatKey);
+      if (!k) throw new OpsError(`"${f.beatKey}" isn't a key — try "E minor" or "F# major".`);
+      out.key = k;
+    }
+  }
   return { ...out, isDemo: false };
 }
 
@@ -255,6 +268,8 @@ export interface PadPatch {
   fadeInMs?: number | undefined;
   fadeOutMs?: number | undefined;
   empty?: boolean | undefined;
+  /** Pitch changes the key but not the speed (unfitted pads). */
+  keepSpeed?: boolean | undefined;
   /** Move the chop's edges (seconds into the recording). */
   chopStart?: number | undefined;
   chopEnd?: number | undefined;
@@ -308,6 +323,7 @@ export function setPad(p: Project, padId: string, f: PadPatch): Project {
   if (f.chokeGroup != null)
     next.choke = Math.round(range(f.chokeGroup, 0, 4, "chokeGroup")) || null;
   if (f.reverse != null) next.reverse = f.reverse;
+  if (f.keepSpeed != null) next.keepSpeed = f.keepSpeed;
   if (f.fadeInMs != null) next.attack = range(f.fadeInMs, 0, 500, "fadeInMs") / 1000;
   if (f.fadeOutMs != null) next.release = range(f.fadeOutMs, 0, 2000, "fadeOutMs") / 1000;
   if (f.lengthBeats != null) {

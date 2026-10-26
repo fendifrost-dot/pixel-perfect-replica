@@ -24,6 +24,7 @@ import {
   keyService,
 } from "@/lib/frost/engine";
 import type { KeyResult } from "@/lib/frost/key";
+import { BeatKeySelect } from "./KeyMatch";
 import { Waveform, type WaveMode } from "./Waveform";
 import { Segmented } from "./controls";
 import { cn } from "@/lib/utils";
@@ -609,15 +610,19 @@ export function SampleView() {
         <div className="eyebrow">Key</div>
         <div className="flex items-baseline justify-between gap-2">
           <span className="text-sm text-muted-foreground">Whole recording</span>
-          <span className="font-mono text-sm">
+          <span className="flex items-center gap-2 font-mono text-sm">
             {songKey === "working" ? "listening…" : songKey ? songKey.name : buffer ? "can't tell" : "—"}
+            {songKey && songKey !== "working" && <UseAsBeatKey k={songKey} />}
           </span>
         </div>
         {sel && (
           <div className="flex items-center justify-between gap-2">
             <span className="text-sm text-muted-foreground">Selection</span>
             {selKey && selKey.range[0] === sel.start && selKey.range[1] === sel.end ? (
-              <span className="font-mono text-sm">{selKey.key ? selKey.key.name : "too short / unclear"}</span>
+              <span className="flex items-center gap-2 font-mono text-sm">
+                {selKey.key ? selKey.key.name : "too short / unclear"}
+                {selKey.key && <UseAsBeatKey k={selKey.key} />}
+              </span>
             ) : (
               <button
                 className="btn min-h-8 px-3 text-xs"
@@ -629,6 +634,10 @@ export function SampleView() {
             )}
           </div>
         )}
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-sm text-muted-foreground">Beat key</span>
+          <BeatKeySelect />
+        </div>
         <p className="text-[11px] text-muted-foreground">
           {songKey && songKey !== "working"
             ? `${songKey.confidence < 0.25 ? `Close call — could be ${songKey.runnerUp}. ` : ""}Relative ${songKey.mode === "minor" ? "major" : "minor"}: ${songKey.relative}.${
@@ -640,5 +649,17 @@ export function SampleView() {
         </p>
       </section>
     </div>
+  );
+}
+
+/** Make a found key the beat's key — pads can then be matched to it. */
+function UseAsBeatKey({ k }: { k: KeyResult }) {
+  const { project, commit } = useFrost();
+  const same = project.key?.tonic === k.tonic && project.key?.mode === k.mode;
+  if (same) return <span className="text-[11px] text-primary">beat key</span>;
+  return (
+    <button className="btn min-h-7 px-2 text-[11px]" onClick={() => commit((p) => ({ ...p, key: { tonic: k.tonic, mode: k.mode } }))}>
+      Use as beat key
+    </button>
   );
 }

@@ -56,6 +56,11 @@ export interface Pad {
   lengthUnit: LengthUnit;
   lengthValue: number;
   velocity: number; // 1..127, editable default velocity
+  /**
+   * Unfitted pads only: pitch changes the key but not the speed (pitch-preserving stretch), so a
+   * sample can be moved into the beat's key without slowing down or speeding up.
+   */
+  keepSpeed?: boolean;
 }
 
 /** Longest pattern (a whole song laid out on the Timeline). */
@@ -160,4 +165,6 @@ export interface Project {
    * (the backing pad) in `patternId`, and hummed / beatboxed layers are added over it.
    */
   humSession?: { patternId: string; backingPadId: string };
+  /** The beat's key: samples and drums can be matched to it. */
+  key?: { tonic: number; mode: "major" | "minor" };
 }

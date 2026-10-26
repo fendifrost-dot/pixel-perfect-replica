@@ -88,6 +88,8 @@ export interface KeyService {
    * Null when the audio isn't loaded or the part is too short / too unpitched to tell.
    */
   detect(sourceId: string, start?: number, end?: number): KeyResult | null;
+  /** The note a single hit sounds (MIDI number), e.g. an 808 or a kick's body; null for noise. */
+  pitch(sourceId: string, start?: number, end?: number): number | null;
 }
 
 export interface KitService {
