@@ -48,7 +48,9 @@ export function FileList({ files, title }: { files: RenderedFile[]; title: strin
                   f.clipped ? "text-rec" : "text-muted-foreground",
                 )}
               >
-                {f.kind === "midi" ? (
+                {f.blob.type === "application/zip" ? (
+                  `ZIP · ${(f.blob.size / 1e6).toFixed(1)} MB`
+                ) : f.kind === "midi" ? (
                   `MIDI · ${(f.blob.size / 1e3).toFixed(1)} kB`
                 ) : (
                   <>

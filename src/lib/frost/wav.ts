@@ -19,19 +19,24 @@ export interface WavTempo {
   oneShot?: boolean | undefined;
 }
 
-export function encodeWav24(channels: Float32Array[], sampleRate: number, tempo?: WavTempo): EncodeResult {
+/**
+ * @param rootMidi written as a `smpl` chunk (MIDI unity note): samplers map the file to that key
+ *   on load, so a pitched sound (an 808 at C1) plays in tune across the keyboard.
+ */
+export function encodeWav24(channels: Float32Array[], sampleRate: number, tempo?: WavTempo, rootMidi?: number): EncodeResult {
   const nch = channels.length;
   const frames = channels[0]?.length ?? 0;
   const blockAlign = nch * 3;
   const dataBytes = frames * blockAlign;
   const pad = dataBytes & 1; // chunks start on even bytes
   const acidBytes = tempo ? 8 + 24 : 0;
-  const buf = new ArrayBuffer(44 + dataBytes + pad + acidBytes);
+  const smplBytes = rootMidi != null ? 8 + 36 : 0;
+  const buf = new ArrayBuffer(44 + dataBytes + pad + acidBytes + smplBytes);
   const v = new DataView(buf);
   const ascii = (o: number, s: string) =>
     [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
   ascii(0, "RIFF");
-  v.setUint32(4, 36 + dataBytes + pad + acidBytes, true);
+  v.setUint32(4, 36 + dataBytes + pad + acidBytes + smplBytes, true);
   ascii(8, "WAVE");
   ascii(12, "fmt ");
   v.setUint32(16, 16, true);
@@ -78,6 +83,16 @@ export function encodeWav24(channels: Float32Array[], sampleRate: number, tempo?
     v.setUint16(a + 26, 4, true);
     v.setFloat32(a + 28, tempo.bpm, true);
   }
+  if (rootMidi != null) {
+    const o2 = 44 + dataBytes + pad + acidBytes;
+    ascii(o2, "smpl");
+    v.setUint32(o2 + 4, 36, true);
+    v.setUint32(o2 + 8, 0, true); // manufacturer
+    v.setUint32(o2 + 12, 0, true); // product
+    v.setUint32(o2 + 16, Math.round(1e9 / sampleRate), true); // sample period (ns)
+    v.setUint32(o2 + 20, Math.max(0, Math.min(127, Math.round(rootMidi))), true); // MIDI unity note
+    // pitch fraction, SMPTE format/offset, loop count, sampler data: all 0
+  }
   return { bytes: out, clipped, peak };
 }
 
@@ -87,6 +102,8 @@ export interface DecodedWav {
   channels: Float32Array[];
   /** ACID tempo chunk, when the file has one. */
   tempo?: WavTempo;
+  /** `smpl` MIDI unity note, when the file has one. */
+  rootMidi?: number;
 }
 
 /** Decodes 16/24-bit PCM and 32-bit float WAV. Enough to verify our own exports. */
@@ -98,6 +115,7 @@ export function decodeWav(bytes: Uint8Array): DecodedWav {
   let fmt: { format: number; nch: number; sr: number; bits: number } | null = null;
   let data: [number, number] | null = null;
   let tempo: WavTempo | undefined;
+  let rootMidi: number | undefined;
   while (pos + 8 <= bytes.length) {
     const id = tag(pos);
     const size = v.getUint32(pos + 4, true);
@@ -111,6 +129,7 @@ export function decodeWav(bytes: Uint8Array): DecodedWav {
         bits: v.getUint16(pos + 22, true),
       };
     } else if (id === "data") data = [pos + 8, Math.min(size, bytes.length - pos - 8)];
+    else if (id === "smpl" && size >= 36 && pos + 44 <= bytes.length) rootMidi = v.getUint32(pos + 20, true);
     else if (id === "acid" && size >= 24 && pos + 32 <= bytes.length)
       tempo = { bpm: v.getFloat32(pos + 28, true), beats: v.getUint32(pos + 20, true), oneShot: (v.getUint32(pos + 8, true) & 1) === 1 };
     pos += 8 + size + (size & 1);
@@ -131,5 +150,5 @@ export function decodeWav(bytes: Uint8Array): DecodedWav {
       channels[c][i] = x;
     }
   }
-  return { sampleRate: fmt.sr, bitsPerSample: fmt.bits, channels, ...(tempo ? { tempo } : {}) };
+  return { sampleRate: fmt.sr, bitsPerSample: fmt.bits, channels, ...(tempo ? { tempo } : {}), ...(rootMidi != null ? { rootMidi } : {}) };
 }
