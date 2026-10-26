@@ -142,7 +142,7 @@ export const tools = [
     name: "update_project",
     title: "Set name, BPM, feel",
     description:
-      "Rename the project, set the beat's BPM (40–300), the feel (quantize off|1/8|1/16|1/32, applied on playback; swing 50–75%) or the bank shown on Pads.",
+      "Rename the project, set the beat's BPM (40–300), the feel (quantize off|1/8|1/16|1/32, applied on playback; swing 50–75%), the bank shown on Pads, or the beat's key (beatKey, e.g. \"E minor\"; \"\" clears it — use suggest_key to find a recording's key, then set_pad pitch + keepSpeed to move samples into it).",
     inputSchema: {
       project: PROJECT,
       name: z.string().optional(),
@@ -150,6 +150,7 @@ export const tools = [
       quantize: z.enum(["off", "1/8", "1/16", "1/32"]).optional(),
       swing: z.number().optional(),
       bank: z.enum(["A", "B", "C", "D"]).optional(),
+      beatKey: z.string().optional(),
     },
     handler: async ({ project, ...f }) => edit(project, (p) => ops.setProjectFields(p, { ...f, name: f.name == null ? undefined : cleanName(f.name) })),
   }),
@@ -393,7 +394,7 @@ export const tools = [
     name: "set_pad",
     title: "Change a pad",
     description:
-      "Change a pad. fit: off | stretch (keeps pitch) | repitch (classic, pitch follows) to lengthBeats at the project BPM. volume 0–1, pan −1–1, pitch −24–24 st, velocity 1–127, plays whole|held|loop, chokeGroup 0–4 (0 = none), reverse, fadeInMs, fadeOutMs, chopName (rename its chop), chopStart/chopEnd (seconds into the recording) trim or extend its chop — a fitted pad keeps its speed (its lengthBeats scales with the chop) unless lengthBeats is also given, empty=true clears the pad.",
+      "Change a pad. fit: off | stretch (keeps pitch) | repitch (classic, pitch follows) to lengthBeats at the project BPM. volume 0–1, pan −1–1, pitch −24–24 st, velocity 1–127, plays whole|held|loop, chokeGroup 0–4 (0 = none), reverse, keepSpeed (unfitted pads: pitch changes the key, not the speed — use it to move a sample into the beat key), fadeInMs, fadeOutMs, chopName (rename its chop), chopStart/chopEnd (seconds into the recording) trim or extend its chop — a fitted pad keeps its speed (its lengthBeats scales with the chop) unless lengthBeats is also given, empty=true clears the pad.",
     inputSchema: {
       project: PROJECT,
       pad: PAD,
@@ -406,6 +407,7 @@ export const tools = [
       plays: z.enum(["whole", "held", "loop"]).optional(),
       chokeGroup: z.number().int().optional(),
       reverse: z.boolean().optional(),
+      keepSpeed: z.boolean().optional(),
       fadeInMs: z.number().optional(),
       fadeOutMs: z.number().optional(),
       chopName: z.string().optional(),

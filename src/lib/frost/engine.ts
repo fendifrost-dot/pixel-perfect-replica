@@ -26,7 +26,7 @@ import { CHOKE_FADE, MIN_RELEASE, padSource, startVoice, type VoiceHandle } from
 import type { Pad, Project, Slice } from "./types";
 import { encodeWav24 } from "./wav";
 import { validateAiSlices } from "./aiSlices";
-import { detectKey } from "./key";
+import { detectKey, detectPitch } from "./key";
 
 let ctx: AudioContext | null = null;
 export function ac(): AudioContext {
@@ -493,7 +493,18 @@ export const keyService: KeyService = {
     }
     return keys.get(id) ?? null;
   },
+  pitch(sourceId, start, end) {
+    const b = audioStore.getBuffer(sourceId);
+    if (!b) return null;
+    const id = `pitch|${sourceId}|${start ?? ""}|${end ?? ""}|${b.length}`;
+    if (!notes.has(id)) {
+      if (notes.size > 200) notes.clear();
+      notes.set(id, detectPitch(monoOf(b), b.sampleRate, start, end));
+    }
+    return notes.get(id) ?? null;
+  },
 };
+const notes = new Map<string, number | null>();
 
 export const aiSliceService: AiSliceService = {
   async suggest(sourceId, start, end, availablePads, signal) {

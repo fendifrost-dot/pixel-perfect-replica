@@ -200,6 +200,8 @@ export function playPlan(pad: Pad, slice: Slice, bpm: number): PlayPlan {
   const dur = slice.end - slice.start;
   const pitchRate = Math.pow(2, pad.pitch / 12);
   if (pad.lengthUnit === "off" || lengthBeats(pad) <= 0 || dur <= 0) {
+    // keep speed: stretch by the pitch ratio, then play faster/slower by it — new key, same length
+    if (pad.keepSpeed && pad.pitch && dur > 0) return { rate: pitchRate, stretch: pitchRate, duration: dur, pitchSemis: pad.pitch };
     return { rate: pitchRate, stretch: null, duration: dur / pitchRate, pitchSemis: pad.pitch };
   }
   const target = (lengthBeats(pad) * 60) / bpm;

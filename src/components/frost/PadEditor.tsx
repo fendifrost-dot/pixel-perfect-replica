@@ -6,8 +6,7 @@ import { playPlan } from "@/lib/frost/timing";
 import { pruneKitSources } from "@/lib/frost/kitActions";
 import { Segmented, Slider } from "./controls";
 import { ChopTrim } from "./ChopTrim";
-import { keyService } from "@/lib/frost/engine";
-import { transposeKey } from "@/lib/frost/key";
+import { KeyMatch } from "./KeyMatch";
 import { cn } from "@/lib/utils";
 
 const LENGTHS = [0.25, 0.5, 1, 2, 3, 4, 6, 8, 12, 16, 32];
@@ -149,20 +148,7 @@ export function PadEditor({ pad, onAddDrum }: { pad: Pad; onAddDrum?: () => void
         {trim && <ChopTrim pad={pad} slice={slice} />}
       </div>
 
-      {(() => {
-        // Key of this chop (recordings only — a drum or synth has no key to find)
-        if (project.sources.find((x) => x.id === slice.sourceId)?.origin !== "imported") return null;
-        const k = keyService.detect(slice.sourceId, slice.start, slice.end);
-        const shift = Math.round(plan?.pitchSemis ?? 0);
-        return (
-          <div className="flex items-baseline justify-between gap-2 text-xs" aria-label="Chop key">
-            <span className="eyebrow">Key</span>
-            <span className="font-mono">
-              {k ? (shift ? `${k.name} → plays in ${transposeKey(k, shift)} (${shift > 0 ? "+" : ""}${shift} st)` : k.name) : "too short / unclear to tell"}
-            </span>
-          </div>
-        );
-      })()}
+      <KeyMatch pad={pad} slice={slice} plan={plan} />
 
       <div className="space-y-2">
         <div className="eyebrow">Fit to the beat</div>

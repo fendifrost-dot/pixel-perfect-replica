@@ -11,6 +11,8 @@
  *    of the 24 keys wins, with a confidence from how far ahead of the runner-up it is.
  */
 
+import { yinPitch } from "./hum";
+
 export interface KeyResult {
   /** 0 = C … 11 = B. */
   tonic: number;
@@ -155,4 +157,67 @@ export function detectKey(x: Float32Array, sr: number, start = 0, end = x.length
     tuningCents: Math.round(tuning * 100),
     runnerUp: keyName(second.tonic, second.mode),
   };
+}
+
+/**
+ * Semitones to move a sample in key `from` so it fits key `to`: −6…+5, the smallest move.
+ * Major and minor are compared through their relative keys (same notes): a C-major sample already
+ * fits an A-minor beat, so that's 0.
+ */
+export function keyShift(from: Pick<KeyResult, "tonic" | "mode">, to: Pick<KeyResult, "tonic" | "mode">): number {
+  const asMajor = (k: Pick<KeyResult, "tonic" | "mode">) => (k.mode === "minor" ? k.tonic + 3 : k.tonic);
+  const d = (((asMajor(to) - asMajor(from)) % 12) + 12) % 12;
+  return d > 5 ? d - 12 : d;
+}
+
+/** Semitones to move a single note (a drum's pitch, as MIDI) onto the key's root: −6…+5. */
+export function rootShift(midi: number, to: Pick<KeyResult, "tonic">): number {
+  const d = (((to.tonic - Math.round(midi)) % 12) + 12) % 12;
+  return d > 5 ? d - 12 : d;
+}
+
+/**
+ * The note a single hit sounds (an 808, a kick's body, a tom), as a MIDI number, from the part
+ * after the attack. Null for noise (hats, snares) or anything without one clear pitch.
+ */
+export function detectPitch(x: Float32Array, sr: number, start = 0, end = x.length / sr): number | null {
+  // 8 kHz copy is plenty for a drum's fundamental (down to ~25 Hz)
+  const k = Math.max(1, Math.floor(sr / 8000));
+  const a = Math.floor((start + 0.015) * sr), b = Math.min(x.length, Math.floor(Math.min(end, start + 0.6) * sr));
+  const n = Math.floor((b - a) / k);
+  if (n <= 0) return null;
+  const y = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    let s = 0;
+    for (let j = 0; j < k; j++) s += x[a + i * k + j];
+    y[i] = s / k;
+  }
+  const fs = sr / k;
+  const w = Math.round(0.08 * fs);
+  const hop = Math.round(0.02 * fs);
+  const pitches: number[] = [];
+  for (let at = 0; at + w + fs / 25 < n; at += hop) {
+    let e = 0;
+    for (let j = 0; j < w; j++) e += y[at + j] * y[at + j];
+    if (Math.sqrt(e / w) < 0.01) continue;
+    const f = yinPitch(y, at, w, fs, 25, 1000);
+    if (f) pitches.push(69 + 12 * Math.log2(f / 440));
+  }
+  if (pitches.length < 2) return null;
+  pitches.sort((p, q) => p - q);
+  const med = pitches[Math.floor(pitches.length / 2)];
+  // most frames must agree (within a semitone) for it to count as one clear note
+  const agree = pitches.filter((p) => Math.abs(p - med) < 1).length / pitches.length;
+  return agree >= 0.6 ? med : null;
+}
+
+/** "E minor", "F# major", "Bb minor", "Em", "C" → a key; null if it isn't one. */
+export function parseKey(text: string): Pick<KeyResult, "tonic" | "mode"> | null {
+  const m = /^\s*([A-Ga-g])\s*([#♯b♭]?)\s*(major|maj|minor|min|m)?\s*$/i.exec(text);
+  if (!m) return null;
+  const base = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[m[1].toUpperCase() as "C"];
+  const acc = m[2] === "#" || m[2] === "♯" ? 1 : m[2] === "b" || m[2] === "♭" ? -1 : 0;
+  const q = (m[3] ?? "").toLowerCase();
+  const mode = q === "m" || q.startsWith("min") ? "minor" : "major";
+  return { tonic: (((base + acc) % 12) + 12) % 12, mode };
 }
