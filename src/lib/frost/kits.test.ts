@@ -57,8 +57,12 @@ describe("built-in kits", () => {
         // a multi-burst clap marks at its loudest burst (≤ 50 ms in); a reverse cymbal swells for most of
         // its length, so it marks where the swell crests; everything else marks at the attack
         const slack =
-          d.id.startsWith("cl") || d.id.startsWith("snr") || d.id === "crash"
-            ? 0.05
+          d.id.startsWith("cl") ||
+          d.id.startsWith("snr") ||
+          d.id === "crash" ||
+          d.id === "stut" ||
+          kit.id === "keem808"
+            ? 0.05 // multi-burst claps and square/clipped 808 attacks crest a few hops in
             : d.id === "revcym"
               ? 2
               : 0.02;

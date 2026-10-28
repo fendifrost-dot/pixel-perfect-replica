@@ -1287,7 +1287,484 @@ const metroDrums: KitDef = {
   ],
 };
 
-export const KITS: KitDef[] = [westside, trap808, metro808s, dreKicks, metroDrums, instruments];
+// ---------------------------------------------------------------- Kits: "Keem-style" (scrunched, sliding 808s; knocking kicks; glitchy percussion)
+
+/** Hard clip at ±`ceil` then bring back up: the blown, "scrunched" top of a distorted 808. */
+function clip(x: Float32Array, ceil: number): Float32Array {
+  const out = new Float32Array(x.length);
+  for (let i = 0; i < x.length; i++) out[i] = Math.max(-ceil, Math.min(ceil, x[i])) / ceil;
+  return out;
+}
+
+/** Quantise to 2^bits levels — bit-crushed crunch. */
+function crush(x: Float32Array, bits: number): Float32Array {
+  const q = Math.pow(2, bits);
+  const out = new Float32Array(x.length);
+  for (let i = 0; i < x.length; i++) out[i] = Math.round(x[i] * q) / q;
+  return out;
+}
+
+/** Keep every `hold`-th sample (sample-rate reduction) — lo-fi aliasing. */
+function decimate(x: Float32Array, hold: number): Float32Array {
+  const out = new Float32Array(x.length);
+  let v = 0;
+  for (let i = 0; i < x.length; i++) {
+    if (i % hold === 0) v = x[i];
+    out[i] = v;
+  }
+  return out;
+}
+
+interface Keem808 {
+  len: number;
+  decay: number;
+  hold: number;
+  /** Pitch starts `drop`× higher and slides down over `glide` s (big slides are the signature). */
+  drop: number;
+  glide: number;
+  harm: number;
+  /** Square-wave blend for a blown, buzzy 808 (0 = pure sine). */
+  square: number;
+  drive: number;
+  /** Hard clip ceiling (1 = none; 0.3 = heavily scrunched). */
+  clip: number;
+  /** Low-pass after the clip (keeps the scrunch dark). */
+  lp: number;
+  /** Bit-crush (0 = none). */
+  bits: number;
+  /** Kick knock layered on the attack. */
+  knock: number;
+  click: number;
+  seed: number;
+}
+function keem808(sr: number, o: Keem808): Float32Array {
+  const n = secs(o.len, sr);
+  const f = hz(24);
+  const f0 = f * o.drop;
+  let body = add(sweep(n, sr, f0, f, o.glide), gain(sweep(n, sr, f0, f, o.glide, 2), o.harm));
+  if (o.square) {
+    // a square that slides with the sine: sign of the same sweep
+    const sq = sweep(n, sr, f0, f, o.glide).map((v) => (v >= 0 ? 1 : -1));
+    body = add(gain(body, 1 - o.square), gain(sq, o.square));
+  }
+  let x = mul(body, env(n, sr, o.decay, o.hold));
+  if (o.knock) x = add(x, mul(sweep(n, sr, 210, 60, 0.02), env(n, sr, 0.06), o.knock));
+  if (o.click) x = add(x, mul(hp(noise(n, o.seed), sr, 3500), env(n, sr, 0.002), o.click));
+  x = sat(x, o.drive);
+  if (o.clip < 1) x = clip(x, o.clip);
+  if (o.bits) x = crush(x, o.bits);
+  x = lp(x, sr, o.lp);
+  return finish(x, sr, 0.9, 40);
+}
+
+const KEEM_808S: [string, Partial<Keem808>][] = [
+  ["Scrunch", { clip: 0.35, lp: 1800, drive: 2.5, drop: 2.2, glide: 0.06 }],
+  ["Big Slide", { drop: 4, glide: 0.14, decay: 1.1, clip: 0.6, lp: 3000 }],
+  ["Blown Square", { square: 0.6, clip: 0.5, lp: 2200, drive: 2 }],
+  ["Knock 808", { knock: 1.2, decay: 0.5, len: 1.4, clip: 0.7, lp: 4000 }],
+  ["Crushed", { bits: 4, clip: 0.5, lp: 2600, decay: 0.9 }],
+  ["Short Stab", { len: 0.6, decay: 0.18, hold: 0.02, drop: 3, glide: 0.04, clip: 0.45, lp: 2400 }],
+  ["Clean Sub", { drive: 1.1, clip: 1, lp: 400, harm: 0.05, decay: 1.2 }],
+  ["Glide Up", { drop: 0.5, glide: 0.1, clip: 0.55, lp: 2800 }],
+  ["Growl", { square: 0.35, drive: 3.5, clip: 0.3, lp: 1500, harm: 0.3 }],
+  ["Long Drag", { len: 3, decay: 1.5, drop: 2.8, glide: 0.2, clip: 0.6, lp: 2500 }],
+];
+
+const keem808s: KitDef = {
+  id: "keem808",
+  name: "Keem-style 808s",
+  blurb:
+    "10 scrunched, hard-clipped, sliding 808s tuned to C1 — blown squares, crushed, big drags. Play them as notes.",
+  drums: KEEM_808S.map(([name, o], i) => ({
+    id: `k${String(i + 1).padStart(2, "0")}`,
+    name: `808 ${String(i + 1).padStart(2, "0")} ${name}`,
+    short: `K808 ${i + 1}`,
+    level: 0.72,
+    rootMidi: 24,
+    render: (sr: number) =>
+      keem808(sr, {
+        len: 2,
+        decay: 0.8,
+        hold: 0.04,
+        drop: 2,
+        glide: 0.05,
+        harm: 0.2,
+        square: 0,
+        drive: 1.8,
+        clip: 0.5,
+        lp: 2500,
+        bits: 0,
+        knock: 0,
+        click: 0.15,
+        seed: 1200 + i,
+        ...o,
+      }),
+  })),
+};
+
+/** Short pitched blip: a fast up- or down-sweep — chirps, zips, lasers. */
+function zap(
+  sr: number,
+  len: number,
+  f0: number,
+  f1: number,
+  tau: number,
+  decay: number,
+  drive: number,
+  seed: number,
+  noiseAmt = 0,
+): Float32Array {
+  const n = secs(len, sr);
+  let x = mul(sweep(n, sr, f0, f1, tau), env(n, sr, decay));
+  if (noiseAmt) x = add(x, mul(hp(noise(n, seed), sr, 3000), env(n, sr, decay * 0.5), noiseAmt));
+  return finish(sat(x, drive), sr, 0.85);
+}
+
+/** A tiny repeated burst (stutter / glitch). */
+function stutter(
+  sr: number,
+  reps: number,
+  gapMs: number,
+  make: (n: number) => Float32Array,
+): Float32Array {
+  const gap = Math.round((gapMs / 1000) * sr);
+  const one = make(gap);
+  const out = new Float32Array(gap * reps + secs(0.05, sr));
+  for (let r = 0; r < reps; r++)
+    for (let i = 0; i < one.length; i++) out[r * gap + i] += one[i] * (1 - r * 0.15);
+  return finish(out, sr, 0.85);
+}
+
+const keemDrums: KitDef = {
+  id: "keemdrums",
+  name: "Keem-style drums",
+  blurb:
+    "Knocking, crushed kicks and off-kilter percussion: clicks, pops, wood, bells, chirps, zips, stutters, a vowel blip.",
+  drums: [
+    // ---- kicks
+    {
+      id: "kick1",
+      name: "Kick knock",
+      short: "Knock",
+      level: 0.8,
+      render: (sr) =>
+        dreKick(sr, {
+          len: 0.4,
+          f0: 230,
+          f1: 58,
+          tau: 0.018,
+          decay: 0.12,
+          click: 0.9,
+          clickHz: 3200,
+          thud: 0.3,
+          drive: 3,
+          top: 6000,
+          room: 0,
+          seed: 1301,
+        }),
+    },
+    {
+      id: "kick2",
+      name: "Kick boxy",
+      short: "Boxy",
+      level: 0.78,
+      render: (sr) =>
+        finish(
+          lp(
+            dreKick(sr, {
+              len: 0.3,
+              f0: 180,
+              f1: 70,
+              tau: 0.02,
+              decay: 0.08,
+              click: 0.5,
+              clickHz: 1800,
+              thud: 0.6,
+              drive: 2.4,
+              top: 3000,
+              room: 0.15,
+              seed: 1302,
+            }),
+            sr,
+            2500,
+          ),
+          sr,
+        ),
+    },
+    {
+      id: "kick3",
+      name: "Kick distorted",
+      short: "Dist",
+      level: 0.75,
+      render: (sr) =>
+        finish(
+          clip(
+            dreKick(sr, {
+              len: 0.45,
+              f0: 200,
+              f1: 52,
+              tau: 0.03,
+              decay: 0.2,
+              click: 0.6,
+              clickHz: 2500,
+              thud: 0.2,
+              drive: 4,
+              top: 7000,
+              room: 0,
+              seed: 1303,
+            }),
+            0.4,
+          ),
+          sr,
+        ),
+    },
+    {
+      id: "kick4",
+      name: "Kick crushed",
+      short: "Crush",
+      level: 0.75,
+      render: (sr) =>
+        finish(
+          crush(
+            decimate(
+              dreKick(sr, {
+                len: 0.4,
+                f0: 190,
+                f1: 56,
+                tau: 0.025,
+                decay: 0.16,
+                click: 0.7,
+                clickHz: 2200,
+                thud: 0.3,
+                drive: 2.5,
+                top: 8000,
+                room: 0,
+                seed: 1304,
+              }),
+              3,
+            ),
+            5,
+          ),
+          sr,
+        ),
+    },
+    {
+      id: "kick5",
+      name: "Kick boom",
+      short: "Boom",
+      level: 0.8,
+      render: (sr) =>
+        dreKick(sr, {
+          len: 0.8,
+          f0: 150,
+          f1: 45,
+          tau: 0.05,
+          decay: 0.35,
+          click: 0.4,
+          clickHz: 2000,
+          thud: 0.4,
+          drive: 2,
+          top: 5000,
+          room: 0.1,
+          seed: 1305,
+        }),
+    },
+    {
+      id: "kick6",
+      name: "Kick tight",
+      short: "Tight",
+      level: 0.78,
+      render: (sr) =>
+        dreKick(sr, {
+          len: 0.22,
+          f0: 260,
+          f1: 65,
+          tau: 0.012,
+          decay: 0.06,
+          click: 1,
+          clickHz: 4000,
+          thud: 0.1,
+          drive: 2.8,
+          top: 9000,
+          room: 0,
+          seed: 1306,
+        }),
+    },
+    // ---- percussion
+    {
+      id: "click",
+      name: "Click",
+      short: "Click",
+      level: 0.45,
+      render: (sr) => {
+        const n = secs(0.09, sr);
+        return finish(mul(bp(noise(n, 1310), sr, 2500, 9000, 2), env(n, sr, 0.003)), sr, 0.85, 2);
+      },
+    },
+    {
+      id: "pop",
+      name: "Pop",
+      short: "Pop",
+      level: 0.5,
+      render: (sr) => zap(sr, 0.09, 900, 180, 0.008, 0.02, 2.5, 1311, 0.2),
+    },
+    {
+      id: "woodhi",
+      name: "Wood block hi",
+      short: "Wood H",
+      level: 0.45,
+      render: (sr) => {
+        const n = secs(0.12, sr);
+        const x = add(
+          mul(add(sine(n, sr, 1480), gain(sine(n, sr, 2210), 0.4)), env(n, sr, 0.012)),
+          mul(bp(noise(n, 1312), sr, 2000, 7000), env(n, sr, 0.003), 0.5),
+        );
+        return finish(sat(x, 1.8), sr, 0.8);
+      },
+    },
+    {
+      id: "woodlo",
+      name: "Wood block lo",
+      short: "Wood L",
+      level: 0.45,
+      render: (sr) => {
+        const n = secs(0.16, sr);
+        const x = add(
+          mul(add(sine(n, sr, 740), gain(sine(n, sr, 1110), 0.4)), env(n, sr, 0.02)),
+          mul(bp(noise(n, 1313), sr, 1200, 5000), env(n, sr, 0.004), 0.5),
+        );
+        return finish(sat(x, 1.8), sr, 0.8);
+      },
+    },
+    {
+      id: "bell",
+      name: "Bell",
+      short: "Bell",
+      level: 0.4,
+      render: (sr) => {
+        const n = secs(0.6, sr);
+        const x = add(
+          mul(sine(n, sr, 1760), env(n, sr, 0.18)),
+          mul(sine(n, sr, 1760 * 2.76), env(n, sr, 0.08), 0.5),
+          mul(sine(n, sr, 1760 * 5.4), env(n, sr, 0.03), 0.3),
+        );
+        return finish(x, sr, 0.8);
+      },
+    },
+    {
+      id: "chirp",
+      name: "Chirp up",
+      short: "Chirp",
+      level: 0.4,
+      render: (sr) => zap(sr, 0.18, 400, 2600, 0.05, 0.06, 1.6, 1314),
+    },
+    {
+      id: "zip",
+      name: "Zip down",
+      short: "Zip",
+      level: 0.4,
+      render: (sr) => zap(sr, 0.14, 3200, 300, 0.03, 0.05, 2, 1315, 0.3),
+    },
+    {
+      id: "laser",
+      name: "Laser",
+      short: "Laser",
+      level: 0.35,
+      render: (sr) => zap(sr, 0.3, 4000, 120, 0.09, 0.12, 2.5, 1316),
+    },
+    {
+      id: "crhat",
+      name: "Hat crushed",
+      short: "CrHat",
+      level: 0.4,
+      render: (sr) => {
+        const n = secs(0.1, sr);
+        return finish(
+          crush(decimate(mul(hp(noise(n, 1317), sr, 7000, 2), env(n, sr, 0.02)), 2), 4),
+          sr,
+          0.8,
+          3,
+        );
+      },
+    },
+    {
+      id: "stut",
+      name: "Stutter",
+      short: "Stut",
+      level: 0.45,
+      render: (sr) =>
+        stutter(sr, 3, 28, (g) => mul(bp(noise(g, 1318), sr, 1500, 6000), env(g, sr, 0.006))),
+    },
+    {
+      id: "blip",
+      name: "Vowel blip",
+      short: "Blip",
+      level: 0.45,
+      render: (sr) => {
+        const n = secs(0.16, sr);
+        const src = saw(n, sr, 160);
+        const x = add(
+          mul(bp(src, sr, 500, 700, 2), env(n, sr, 0.05), 1.2),
+          mul(bp(src, sr, 1050, 1300, 2), env(n, sr, 0.04), 0.8),
+        );
+        return finish(sat(x, 2.2), sr, 0.8);
+      },
+    },
+    {
+      id: "tomhi",
+      name: "Tom pitched",
+      short: "Tom",
+      level: 0.55,
+      render: (sr) => {
+        const n = secs(0.35, sr);
+        const x = add(
+          mul(sweep(n, sr, 420, 190, 0.05), env(n, sr, 0.1)),
+          mul(hp(noise(n, 1319), sr, 2000), env(n, sr, 0.004), 0.4),
+        );
+        return finish(clip(sat(x, 2), 0.6), sr);
+      },
+    },
+    {
+      id: "knockp",
+      name: "Knock perc",
+      short: "KnockP",
+      level: 0.5,
+      render: (sr) => {
+        const n = secs(0.12, sr);
+        const x = add(
+          mul(sweep(n, sr, 300, 140, 0.01), env(n, sr, 0.025)),
+          mul(bp(noise(n, 1320), sr, 800, 3000), env(n, sr, 0.004), 0.6),
+        );
+        return finish(sat(x, 2.5), sr, 0.85);
+      },
+    },
+    {
+      id: "crsnap",
+      name: "Snap crushed",
+      short: "CrSnap",
+      level: 0.45,
+      render: (sr) => {
+        const n = secs(0.15, sr);
+        const x = add(
+          mul(bp(noise(n, 1321), sr, 1800, 7000, 2), env(n, sr, 0.015)),
+          mul(sine(n, sr, 900), env(n, sr, 0.008), 0.4),
+        );
+        return finish(crush(x, 4), sr, 0.85);
+      },
+    },
+  ],
+};
+
+export const KITS: KitDef[] = [
+  westside,
+  trap808,
+  metro808s,
+  keem808s,
+  dreKicks,
+  keemDrums,
+  metroDrums,
+  instruments,
+];
 
 /** The pitched instruments (hum → bass / melody). */
 export const INSTRUMENTS = instruments;
