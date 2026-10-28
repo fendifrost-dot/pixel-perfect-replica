@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, ChevronDown, Download, Share2, XCircle } from "lucide-react";
 import { useFrost } from "@/lib/frost/store";
 import { recordOffset } from "@/lib/frost/device";
@@ -6,7 +6,7 @@ import { renderService } from "@/lib/frost/render";
 import { runDeviceCheck, type CheckResult } from "@/lib/frost/selftest";
 import { songSections, patternSections, sectionsLength } from "@/lib/frost/timing";
 import type { RenderedFile } from "@/lib/frost/services";
-import type { ExportSettings } from "@/lib/frost/types";
+import { BANKS, type ExportSettings } from "@/lib/frost/types";
 import { Segmented } from "./controls";
 import { cn } from "@/lib/utils";
 import { FileList } from "./FileList";
@@ -77,7 +77,16 @@ export function ExportView() {
     setTimeout(() => {
       try {
         const { fileName, bytes } = buildSamplerPack(packKit, ex.sampleRate);
-        setPackFiles([{ name: fileName, blob: new Blob([bytes as Uint8Array<ArrayBuffer>], { type: "application/zip" }), frames: 0, peak: 0, clipped: 0, kind: "stem" }]);
+        setPackFiles([
+          {
+            name: fileName,
+            blob: new Blob([bytes as Uint8Array<ArrayBuffer>], { type: "application/zip" }),
+            frames: 0,
+            peak: 0,
+            clipped: 0,
+            kind: "stem",
+          },
+        ]);
         notify(`${packKit.name} ready — save it to your Mac and unzip.`);
       } catch (e) {
         notify((e as Error).message);
@@ -90,12 +99,58 @@ export function ExportView() {
   // Pad samples: every pad's sound as its own WAV, no beat needed.
   const [padMode, setPadMode] = useState<"pad" | "original">("pad");
   const [padFiles, setPadFiles] = useState<RenderedFile[]>([]);
-  const padCount = project.pads.filter((x) => x.sliceId).length;
+  // Pads with a sound, grouped by bank in pad order (A1..A16, B1..), for the pick list.
+  const padGroups = useMemo(
+    () =>
+      BANKS.map((bank) => ({
+        bank,
+        pads: project.pads
+          .filter((x) => x.bank === bank && x.sliceId)
+          .sort((a, b) => a.index - b.index)
+          .map((x) => ({
+            id: x.id,
+            name: project.slices.find((s) => s.id === x.sliceId)?.name ?? "Chop",
+          })),
+      })).filter((g) => g.pads.length),
+    [project.pads, project.slices],
+  );
+  const soundPadIds = useMemo(() => padGroups.flatMap((g) => g.pads.map((x) => x.id)), [padGroups]);
+  // Which pads to export: component state only, starts as all; pads that lose their sound drop out.
+  const [chosenPads, setChosenPads] = useState<Set<string>>(() => new Set(soundPadIds));
+  const [padsTouched, setPadsTouched] = useState(false);
+  useEffect(() => {
+    setChosenPads((prev) => {
+      const next = new Set(soundPadIds.filter((id) => (padsTouched ? prev.has(id) : true)));
+      // keep newly-added pads selected until the user has made a choice
+      if (!padsTouched) return next;
+      return next.size === prev.size && [...next].every((id) => prev.has(id)) ? prev : next;
+    });
+  }, [soundPadIds, padsTouched]);
+  const togglePad = (id: string) => {
+    setPadsTouched(true);
+    setChosenPads((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const choosePads = (ids: string[]) => {
+    setPadsTouched(true);
+    setChosenPads(new Set(ids));
+  };
+  const padCount = soundPadIds.length;
+  const chosenCount = chosenPads.size;
   const renderPads = async () => {
     setBusy("Preparing…");
     setPadFiles([]);
     try {
-      const { files: out, skipped } = await renderService.renderPadSamples(project, padMode, setBusy);
+      const { files: out, skipped } = await renderService.renderPadSamples(
+        project,
+        padMode,
+        setBusy,
+        [...chosenPads],
+      );
       setPadFiles(out);
       notify(
         skipped.length
@@ -230,8 +285,70 @@ export function ExportView() {
             : "Exactly what you cut from the recording, nothing changed (only a 2 ms fade at each edge so it doesn't click)."}{" "}
           {padCount} pad{padCount === 1 ? "" : "s"} · 24-bit · {ex.sampleRate / 1000} kHz.
         </p>
-        <button className="btn btn-primary h-12 w-full" onClick={renderPads} disabled={!!busy || !padCount}>
-          {busy ?? (padCount ? `Export ${padCount} pad sample${padCount === 1 ? "" : "s"}` : "No pads have a sound yet")}
+        {padCount > 0 && (
+          <div className="space-y-2" aria-label="Pads to export">
+            <div className="flex items-center justify-between">
+              <div className="eyebrow">
+                Pads to export · {chosenCount} of {padCount}
+              </div>
+              <div className="flex gap-1">
+                <button
+                  className="btn min-h-8 px-2.5 text-xs"
+                  onClick={() => choosePads(soundPadIds)}
+                  disabled={chosenCount === padCount}
+                >
+                  All
+                </button>
+                <button
+                  className="btn min-h-8 px-2.5 text-xs"
+                  onClick={() => choosePads([])}
+                  disabled={chosenCount === 0}
+                >
+                  None
+                </button>
+              </div>
+            </div>
+            {padGroups.map((g) => (
+              <div key={g.bank} className="space-y-1">
+                {padGroups.length > 1 && (
+                  <div className="text-[10px] font-semibold uppercase text-muted-foreground">
+                    Bank {g.bank}
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
+                  {g.pads.map((x) => (
+                    <button
+                      key={x.id}
+                      role="checkbox"
+                      aria-checked={chosenPads.has(x.id)}
+                      aria-label={`${x.id} · ${x.name}`}
+                      className={cn(
+                        "btn min-h-9 justify-start px-2 text-left text-xs",
+                        chosenPads.has(x.id) && "btn-on",
+                      )}
+                      onClick={() => togglePad(x.id)}
+                    >
+                      <span className="truncate">
+                        <span className="font-mono">{x.id}</span> · {x.name}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <button
+          className="btn btn-primary h-12 w-full"
+          onClick={renderPads}
+          disabled={!!busy || !chosenCount}
+        >
+          {busy ??
+            (padCount
+              ? chosenCount
+                ? `Export ${chosenCount} pad sample${chosenCount === 1 ? "" : "s"}`
+                : "Pick at least one pad"
+              : "No pads have a sound yet")}
         </button>
         {padFiles.length > 0 && <FileList files={padFiles} title={`${project.name} pads`} />}
       </section>
@@ -239,25 +356,35 @@ export function ExportView() {
       <section className="panel space-y-3" aria-label="Sounds for your DAW">
         <div className="eyebrow">Sounds for your DAW</div>
         <p className="text-[11px] text-muted-foreground">
-          Any built-in kit as a playable instrument for LUNA: the WAVs plus presets for the free Decent Sampler plug-in, in one .zip.
+          Any built-in kit as a playable instrument for LUNA: the WAVs plus presets for the free
+          Decent Sampler plug-in, in one .zip.
           {packKit && isPitchedKit(packKit)
             ? " Each sound plays on every key, one note at a time like a real 808 line — edit the notes and their lengths in LUNA's piano roll."
             : " One sound per key from C1 (MIDI 36) up — pick a sound by its note in LUNA's piano roll."}
         </p>
-        <select className="field w-full text-sm" aria-label="Kit to export" value={packId} onChange={(e) => setPackId(e.target.value)}>
+        <select
+          className="field w-full text-sm"
+          aria-label="Kit to export"
+          value={packId}
+          onChange={(e) => setPackId(e.target.value)}
+        >
           {KITS.map((k) => (
             <option key={k.id} value={k.id}>
               {k.name} ({k.drums.length})
             </option>
           ))}
         </select>
-        <button className="btn btn-primary h-12 w-full" disabled={!!busy || !packKit} onClick={exportPack}>
+        <button
+          className="btn btn-primary h-12 w-full"
+          disabled={!!busy || !packKit}
+          onClick={exportPack}
+        >
           {busy ?? `Download ${packKit?.name ?? ""} for LUNA (.zip)`}
         </button>
         {packFiles.length > 0 && <FileList files={packFiles} title={packFiles[0].name} />}
         <p className="text-[11px] text-muted-foreground">
-          On your Mac: install Decent Sampler (free), unzip, then in LUNA put Decent Sampler on an instrument track and load a .dspreset
-          from the folder. The README inside has the steps.
+          On your Mac: install Decent Sampler (free), unzip, then in LUNA put Decent Sampler on an
+          instrument track and load a .dspreset from the folder. The README inside has the steps.
         </p>
       </section>
 
@@ -344,4 +471,3 @@ export function ExportView() {
     </div>
   );
 }
-

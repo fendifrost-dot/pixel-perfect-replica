@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { ChevronDown, Scissors, Trash2 } from "lucide-react";
+import { ChevronDown, Download, Scissors, Trash2 } from "lucide-react";
+import { renderService } from "@/lib/frost/render";
+import type { RenderedFile } from "@/lib/frost/services";
+import { FileList } from "./FileList";
 import { useFrost } from "@/lib/frost/store";
 import type { Pad } from "@/lib/frost/types";
 import { playPlan } from "@/lib/frost/timing";
@@ -24,9 +27,30 @@ const beatLabel = (b: number) => {
 };
 
 export function PadEditor({ pad, onAddDrum }: { pad: Pad; onAddDrum?: () => void }) {
-  const { project, commit } = useFrost();
+  const { project, commit, notify } = useFrost();
   const [more, setMore] = useState(false);
   const [trim, setTrim] = useState(false);
+  // Export this one pad as it plays; files go through the same list the Export page uses.
+  const [busy, setBusy] = useState<string | null>(null);
+  const [exported, setExported] = useState<RenderedFile[]>([]);
+  const exportPad = async () => {
+    setBusy("Preparing…");
+    setExported([]);
+    try {
+      const { files, skipped } = await renderService.renderPadSamples(project, "pad", setBusy, [
+        pad.id,
+      ]);
+      setExported(files);
+      if (skipped.length)
+        notify(
+          `Pad ${pad.id}'s recording isn't loaded on this phone — open Chop and wait for the waveform.`,
+        );
+    } catch (e) {
+      notify((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
   const slice = project.slices.find((s) => s.id === pad.sliceId);
   const plan = slice ? playPlan(pad, slice, project.bpm) : null;
   const grid = slice ? project.beatGrids[slice.sourceId] : undefined;
@@ -130,6 +154,14 @@ export function PadEditor({ pad, onAddDrum }: { pad: Pad; onAddDrum?: () => void
           }
         />
         <button
+          aria-label={`Export pad ${pad.id} as WAV`}
+          className="btn min-h-8 shrink-0 px-2.5 text-xs"
+          onClick={exportPad}
+          disabled={!!busy}
+        >
+          <Download className="size-3.5" /> {busy ? "Rendering…" : "Export WAV"}
+        </button>
+        <button
           aria-label={`Remove the sound from pad ${pad.id}`}
           className="btn min-h-8 shrink-0 px-2.5 text-xs"
           onClick={emptyPad}
@@ -137,6 +169,7 @@ export function PadEditor({ pad, onAddDrum }: { pad: Pad; onAddDrum?: () => void
           <Trash2 className="size-3.5" /> Remove
         </button>
       </div>
+      {exported.length > 0 && <FileList files={exported} title={`${project.name} ${pad.id}`} />}
 
       <div className="space-y-2">
         <button

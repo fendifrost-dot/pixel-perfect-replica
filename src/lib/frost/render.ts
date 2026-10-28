@@ -21,7 +21,14 @@ import {
   type ScheduledHit,
   type Section,
 } from "./timing";
-import { CHOKE_FADE, MIN_ATTACK, MIN_RELEASE, padSource, prepareStretches, startVoice } from "./voice";
+import {
+  CHOKE_FADE,
+  MIN_ATTACK,
+  MIN_RELEASE,
+  padSource,
+  prepareStretches,
+  startVoice,
+} from "./voice";
 import { audioStore } from "./audioStore";
 import { findDrum, parseKitSourceId } from "./kits";
 import { GM_DRUM, TICKS_PER_STEP, writeMidi, type MidiTrack } from "./midi";
@@ -166,8 +173,18 @@ export type PadSampleMode = "pad" | "original";
 
 /** File name for one pad's sample: pad, chop name, and its musical length when it is fitted. */
 export function padSampleName(p: Project, pad: Pad, chopName: string, mode: PadSampleMode): string {
-  const fit = mode === "pad" && pad.lengthUnit !== "off" ? `_${lengthBeats(pad)}beats_${p.bpm}bpm` : "";
+  const fit =
+    mode === "pad" && pad.lengthUnit !== "off" ? `_${lengthBeats(pad)}beats_${p.bpm}bpm` : "";
   return `${safe(p.name)}_${pad.id}_${safe(chopName)}${fit}${mode === "original" ? "_original" : ""}.wav`;
+}
+
+/**
+ * Pads a pad-sample export covers: those with a sound, in project order, limited to `padIds`
+ * when given and non-empty. Pure, so the choice is testable without Web Audio.
+ */
+export function padsToExport(p: Project, padIds?: string[]): Pad[] {
+  const chosen = padIds && padIds.length ? new Set(padIds) : null;
+  return p.pads.filter((x) => x.sliceId && (!chosen || chosen.has(x.id)));
 }
 
 /**
@@ -175,16 +192,23 @@ export function padSampleName(p: Project, pad: Pad, chopName: string, mode: PadS
  * a track. "pad": exactly what a tap plays (fit / stretch, pitch, reverse, fades), one pass, at
  * full level and centred so it can be mixed in the DAW. "original": the cut, untouched.
  * Pads whose recording isn't loaded on this device are listed in `skipped`.
+ * `padIds` limits the export to those pads (in project order); omitted or empty = every pad with a sound.
  */
 export async function renderPadSamples(
   p: Project,
   mode: PadSampleMode,
   onProgress?: (msg: string) => void,
+  padIds?: string[],
 ): Promise<{ files: RenderedFile[]; skipped: string[] }> {
   const sampleRate = p.export.sampleRate;
   if (mode === "pad") prepareStretches(p);
-  const pads = p.pads.filter((x) => x.sliceId);
-  if (!pads.length) throw new Error("No pads have a sound yet — chop a recording onto the pads first.");
+  const pads = padsToExport(p, padIds);
+  if (!pads.length)
+    throw new Error(
+      padIds && padIds.length
+        ? "None of the chosen pads has a sound — pick pads that have a chop or drum on them."
+        : "No pads have a sound yet — chop a recording onto the pads first.",
+    );
   const files: RenderedFile[] = [];
   const skipped: string[] = [];
   for (const [i, pad] of pads.entries()) {
@@ -225,7 +249,11 @@ export async function renderPadSamples(
     // A fitted pad is a loop of known beats at the project tempo; anything else is a one-shot,
     // tagged so a DAW doesn't guess a tempo from its length (a 0.45 s kick reads as 133.33 BPM).
     const fitted = mode === "pad" && pad.lengthUnit !== "off";
-    const enc = encodeWav24(ch, sampleRate, fitted ? { bpm: p.bpm, beats: lengthBeats(pad) } : { bpm: p.bpm, oneShot: true });
+    const enc = encodeWav24(
+      ch,
+      sampleRate,
+      fitted ? { bpm: p.bpm, beats: lengthBeats(pad) } : { bpm: p.bpm, oneShot: true },
+    );
     files.push({
       name: padSampleName(p, pad, slice.name, mode),
       blob: new Blob([enc.bytes as Uint8Array<ArrayBuffer>], { type: "audio/wav" }),
@@ -235,7 +263,10 @@ export async function renderPadSamples(
       kind: "stem",
     });
   }
-  if (!files.length) throw new Error("None of the pads' recordings are loaded on this phone yet — open Chop and wait for the waveform.");
+  if (!files.length)
+    throw new Error(
+      "None of the pads' recordings are loaded on this phone yet — open Chop and wait for the waveform.",
+    );
   return { files, skipped };
 }
 
@@ -258,10 +289,17 @@ export function patternMidi(p: Project, patternId: string, padIds: string[]): Ui
     const found = k ? findDrum(k.kitId, k.drumId) : null;
     const notes = pat.notes.filter((n) => n.padId === id);
     const natural = playPlan(pad, slice, p.bpm).duration / sd;
-    const at = (n: (typeof notes)[number]) => Math.round(effectiveStep(n, p.quantize, p.swing, pat.lengthSteps) * TICKS_PER_STEP);
+    const at = (n: (typeof notes)[number]) =>
+      Math.round(effectiveStep(n, p.quantize, p.swing, pat.lengthSteps) * TICKS_PER_STEP);
     if (found && found.drum.rootMidi == null) {
       // a kit drum: its General MIDI note on the drum track
-      for (const n of notes) drums.notes.push({ tick: at(n), dur: TICKS_PER_STEP, key: GM_DRUM[found.drum.id] ?? 36, vel: n.velocity });
+      for (const n of notes)
+        drums.notes.push({
+          tick: at(n),
+          dur: TICKS_PER_STEP,
+          key: GM_DRUM[found.drum.id] ?? 36,
+          vel: n.velocity,
+        });
       continue;
     }
     // pitched: an instrument plays its own notes; a chop plays from C4 like a sampler key
@@ -286,11 +324,16 @@ export function patternMidi(p: Project, patternId: string, padIds: string[]): Ui
  * left out), and a MIDI file — all starting at the beat's first bar, so they line up when dropped
  * at the start of the beat in LUNA.
  */
-export async function renderHumLayers(p: Project, onProgress?: (msg: string) => void): Promise<RenderedFile[]> {
+export async function renderHumLayers(
+  p: Project,
+  onProgress?: (msg: string) => void,
+): Promise<RenderedFile[]> {
   const hs = p.humSession;
   const pat = p.patterns.find((x) => x.id === hs?.patternId);
   if (!hs || !pat) throw new Error("This project isn't a Hum session.");
-  const layerIds = [...new Set(pat.notes.map((n) => n.padId))].filter((id) => id !== hs.backingPadId).sort();
+  const layerIds = [...new Set(pat.notes.map((n) => n.padId))]
+    .filter((id) => id !== hs.backingPadId)
+    .sort();
   if (!layerIds.length) throw new Error("Nothing to export yet — hum or beatbox a part first.");
   const q: Project = {
     ...p,
@@ -298,11 +341,21 @@ export async function renderHumLayers(p: Project, onProgress?: (msg: string) => 
     export: { ...p.export, mode: "stems", range: "pattern", patternRepeats: 1, includeTails: true },
     // the beat is muted: only what was hummed comes out
     patterns: p.patterns.map((x) =>
-      x.id !== hs.patternId ? x : { ...x, lanes: [...x.lanes.filter((l) => l.padId !== hs.backingPadId), { padId: hs.backingPadId, mute: true, solo: false }] },
+      x.id !== hs.patternId
+        ? x
+        : {
+            ...x,
+            lanes: [
+              ...x.lanes.filter((l) => l.padId !== hs.backingPadId),
+              { padId: hs.backingPadId, mute: true, solo: false },
+            ],
+          },
     ),
   };
   const { files } = await renderProject(q, onProgress);
-  const named = files.map((f) => (f.kind === "mix" ? { ...f, name: f.name.replace(/_Mix\.wav$/, "_Layers_Mix.wav") } : f));
+  const named = files.map((f) =>
+    f.kind === "mix" ? { ...f, name: f.name.replace(/_Mix\.wav$/, "_Layers_Mix.wav") } : f,
+  );
   onProgress?.("Writing MIDI…");
   const midi = patternMidi(q, hs.patternId, layerIds);
   named.push({

@@ -26,7 +26,13 @@ export interface PlaybackService {
   audition(sourceId: string, start: number, end: number, onEnd?: () => void): boolean;
   stopAudition(): void;
   /** Returns false when no decoded audio exists for the pad. */
-  triggerPad(pad: Pad, slice: Slice | undefined, velocity: number, bpm: number, when?: number): boolean;
+  triggerPad(
+    pad: Pad,
+    slice: Slice | undefined,
+    velocity: number,
+    bpm: number,
+    when?: number,
+  ): boolean;
   releasePad(padId: string): void;
   stopAll(): void;
   now(): number;
@@ -74,7 +80,13 @@ export interface AnalysisService {
 }
 
 export interface AiSliceService {
-  suggest(sourceId: string, start: number, end: number, availablePads: number[], signal: AbortSignal): Promise<AiSliceResult>;
+  suggest(
+    sourceId: string,
+    start: number,
+    end: number,
+    availablePads: number[],
+    signal: AbortSignal,
+  ): Promise<AiSliceResult>;
 }
 
 export interface TempoService {
@@ -97,7 +109,10 @@ export interface KitService {
    * Make a built-in drum available as a source (synthesized once, shared by every pad using it).
    * Returns the asset and a slice covering the whole hit, ready to assign to a pad. Null if unknown.
    */
-  loadDrum(kitId: string, drumId: string): { asset: SourceAsset; slice: Omit<Slice, "id">; level: number } | null;
+  loadDrum(
+    kitId: string,
+    drumId: string,
+  ): { asset: SourceAsset; slice: Omit<Slice, "id">; level: number } | null;
 }
 
 export interface RenderedFile {
@@ -114,8 +129,14 @@ export interface RenderService {
   /**
    * One WAV per pad with a sound, no beat needed. "pad" = as a tap plays it (fit, pitch, reverse,
    * fades; full level, centred); "original" = the untouched cut. `skipped` = pads not loaded here.
+   * `padIds` limits the export to those pads; omitted or empty = every pad with a sound.
    */
-  renderPadSamples(p: Project, mode: "pad" | "original", onProgress?: (msg: string) => void): Promise<{ files: RenderedFile[]; skipped: string[] }>;
+  renderPadSamples(
+    p: Project,
+    mode: "pad" | "original",
+    onProgress?: (msg: string) => void,
+    padIds?: string[],
+  ): Promise<{ files: RenderedFile[]; skipped: string[] }>;
   /** A Hum session's layers (beat muted): one WAV each, their mix, and a MIDI file — all from the beat's bar 1. */
   renderHumLayers(p: Project, onProgress?: (msg: string) => void): Promise<RenderedFile[]>;
 }

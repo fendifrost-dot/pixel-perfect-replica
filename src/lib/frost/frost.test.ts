@@ -12,8 +12,15 @@ import {
   stepDur,
 } from "./timing";
 import { decodeWav, encodeWav24 } from "./wav";
-import { padSampleName, planHits } from "./render";
-import { boundaries, detectOnsets, firstAudible, generateBeatGrid, moveBeat, suggestTempo } from "./analysis";
+import { padSampleName, padsToExport, planHits } from "./render";
+import {
+  boundaries,
+  detectOnsets,
+  firstAudible,
+  generateBeatGrid,
+  moveBeat,
+  suggestTempo,
+} from "./analysis";
 import { stretchLength, wsola } from "./stretch";
 import { createDemoProject, makePad } from "./demo";
 import { migrateProject } from "./persist";
@@ -59,7 +66,9 @@ describe("timing", () => {
     const pat = p.patterns.find((x) => x.id === p.currentPatternId)!;
     const n = pat.notes[0];
     n.length = 0.5;
-    const hit = eventsInRange(p, patternSections(p, 1), 0, pat.lengthSteps, false).find((h) => h.noteId === n.id)!;
+    const hit = eventsInRange(p, patternSections(p, 1), 0, pat.lengthSteps, false).find(
+      (h) => h.noteId === n.id,
+    )!;
     expect(hit.length).toBe(0.5);
     const planned = planHits(p, patternSections(p, 1)).hits.find((h) => h.noteId === n.id)!;
     expect(planned.stopAt).toBeCloseTo((hit.at + 0.5) * stepDur(p.bpm));
@@ -211,7 +220,10 @@ describe("analysis", () => {
       const len = Math.round(0.6 * sr);
       for (let i = 0; i < len && s + i < x.length; i++) {
         const env = Math.min(1, i / (0.08 * sr)) * (1 - i / len);
-        x[s + i] += 0.5 * env * (Math.sin((2 * Math.PI * 440 * i) / sr) + 0.3 * Math.sin((2 * Math.PI * 1320 * i) / sr));
+        x[s + i] +=
+          0.5 *
+          env *
+          (Math.sin((2 * Math.PI * 440 * i) / sr) + 0.3 * Math.sin((2 * Math.PI * 1320 * i) / sr));
       }
     }
     const found = detectOnsets(x, sr, 0, 3, 0.5);
@@ -316,10 +328,32 @@ describe("project migration", () => {
 describe("pad sample export", () => {
   it("names each sample by pad and chop, with its musical length when fitted", () => {
     const p = { ...createDemoProject(), name: "My beat", bpm: 132 };
-    const pad = { ...makePad("A", 12), lengthUnit: "bars" as const, lengthValue: 2, timeMode: "stretch" as const };
+    const pad = {
+      ...makePad("A", 12),
+      lengthUnit: "bars" as const,
+      lengthValue: 2,
+      timeMode: "stretch" as const,
+    };
     expect(padSampleName(p, pad, "Chop 12", "pad")).toBe("My_beat_A13_Chop_12_8beats_132bpm.wav");
     expect(padSampleName(p, pad, "Chop 12", "original")).toBe("My_beat_A13_Chop_12_original.wav");
-    expect(padSampleName(p, { ...pad, lengthUnit: "off" }, "Kick", "pad")).toBe("My_beat_A13_Kick.wav");
+    expect(padSampleName(p, { ...pad, lengthUnit: "off" }, "Kick", "pad")).toBe(
+      "My_beat_A13_Kick.wav",
+    );
+  });
+
+  it("limits the export to the chosen pads, in project order; empty or omitted means all", () => {
+    const p = createDemoProject();
+    const withSound = p.pads.filter((x) => x.sliceId).map((x) => x.id);
+    expect(withSound.length).toBeGreaterThan(2);
+    const pick = [withSound[2], withSound[0]]; // out of order on purpose
+    expect(padsToExport(p, pick).map((x) => x.id)).toEqual(
+      withSound.filter((id) => pick.includes(id)),
+    );
+    expect(padsToExport(p, []).map((x) => x.id)).toEqual(withSound);
+    expect(padsToExport(p).map((x) => x.id)).toEqual(withSound);
+    // pads with no sound, or unknown ids, contribute nothing
+    const empty = p.pads.find((x) => !x.sliceId)!.id;
+    expect(padsToExport(p, [empty, "Z9"])).toEqual([]);
   });
 });
 
@@ -334,14 +368,28 @@ describe("playing a section", () => {
       ...p,
       quantize: "off" as const,
       slices: [...p.slices, longSlice],
-      pads: p.pads.map((x) => (x.id === pad.id ? { ...x, sliceId: "long", lengthUnit: "off" as const, pitch: 0, mode: "oneshot" as const } : x)),
+      pads: p.pads.map((x) =>
+        x.id === pad.id
+          ? {
+              ...x,
+              sliceId: "long",
+              lengthUnit: "off" as const,
+              pitch: 0,
+              mode: "oneshot" as const,
+            }
+          : x,
+      ),
       patterns: p.patterns.map((pt) =>
         pt.id === p.currentPatternId
-          ? { ...pt, lengthSteps: 64, notes: [
-              { id: "bed", padId: pad.id, step: 0, velocity: 100, offset: 0 },
-              { id: "a", padId: "A2", step: 20, velocity: 100, offset: 0 },
-              { id: "b", padId: "A2", step: 40, velocity: 100, offset: 0 },
-            ] }
+          ? {
+              ...pt,
+              lengthSteps: 64,
+              notes: [
+                { id: "bed", padId: pad.id, step: 0, velocity: 100, offset: 0 },
+                { id: "a", padId: "A2", step: 20, velocity: 100, offset: 0 },
+                { id: "b", padId: "A2", step: 40, velocity: 100, offset: 0 },
+              ],
+            }
           : pt,
       ),
     };
@@ -361,7 +409,10 @@ describe("wav tempo tag", () => {
     expect(decodeWav(loop.bytes).tempo).toMatchObject({ beats: 8, oneShot: false });
     expect(decodeWav(loop.bytes).tempo!.bpm).toBeCloseTo(132);
     expect(decodeWav(loop.bytes).channels[0].length).toBe(48001);
-    const hit = encodeWav24([new Float32Array(100), new Float32Array(100)], 48000, { bpm: 132, oneShot: true });
+    const hit = encodeWav24([new Float32Array(100), new Float32Array(100)], 48000, {
+      bpm: 132,
+      oneShot: true,
+    });
     expect(decodeWav(hit.bytes).tempo).toMatchObject({ oneShot: true });
     expect(decodeWav(encodeWav24([new Float32Array(10)], 48000).bytes).tempo).toBeUndefined();
   });
