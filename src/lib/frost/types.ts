@@ -61,6 +61,12 @@ export interface Pad {
    * sample can be moved into the beat's key without slowing down or speeding up.
    */
   keepSpeed?: boolean;
+  /**
+   * Start nudge in milliseconds (−250..250), applied wherever the pad plays — live, render and
+   * stems alike. Negative skips into the sound (its first hit was late in the file), positive
+   * delays it. Used to line a Hum session's song up with bar 1.
+   */
+  nudgeMs?: number;
 }
 
 /** Longest pattern (a whole song laid out on the Timeline). */
@@ -79,12 +85,18 @@ export interface NoteEvent {
    */
   offset: number;
   /**
-   * Placed on the Timeline at an exact (possibly 1/32) position: performance quantize leaves it
-   * where it was put. `step` may then be fractional (multiples of 0.5).
+   * Placed on the Timeline at an exact position: performance quantize leaves it where it was put.
+   * `step` may then be fractional — any multiple of 1/6 step (timing.FINE), which covers
+   * 1/32 (0.5), 1/24 (2/3, 8th triplets) and 1/48 (1/3, 16th triplets).
    */
   exact?: boolean;
-  /** How long the hit sounds, in steps (0.5 = a 1/32 note). Absent = the pad's natural length. */
+  /** How long the hit sounds, in steps (0.5 = a 1/32 note, 1/3 = a 1/48). Absent = the pad's natural length. */
   length?: number;
+  /**
+   * Set on notes a generator wrote (e.g. "trap"), so "Regenerate" can replace exactly those and
+   * leave everything the user placed alone.
+   */
+  gen?: string;
   /** Semitones this hit is transposed on top of the pad (a hummed melody on one instrument pad). */
   pitch?: number;
 }

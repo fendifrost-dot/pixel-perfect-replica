@@ -109,11 +109,20 @@ export function padSource(pad: Pad, slice: Slice | undefined, bpm: number): PadS
     const key = `${slice.sourceId}|${slice.start}|${slice.end}`;
     let r = reversedRegions.get(key);
     if (!r) {
-      r = toBuffer(copyRegion(base, slice.start, slice.end).map((c) => c.reverse()), base.sampleRate);
+      r = toBuffer(
+        copyRegion(base, slice.start, slice.end).map((c) => c.reverse()),
+        base.sampleRate,
+      );
       if (reversedRegions.size > 64) reversedRegions.clear();
       reversedRegions.set(key, r);
     }
-    return { buffer: r, offset: 0, duration: r.duration, rate: plan.rate, playDuration: plan.duration };
+    return {
+      buffer: r,
+      offset: 0,
+      duration: r.duration,
+      rate: plan.rate,
+      playDuration: plan.duration,
+    };
   }
   return {
     buffer: base,
@@ -135,6 +144,18 @@ export interface VoiceHandle {
  * Schedule a hit at `when`. `stopAt` (absolute context time) ends gate/loop holds and chokes,
  * with `stopFade` seconds of fade.
  */
+/** Largest start nudge a pad can carry, in ms either way. */
+export const MAX_NUDGE_MS = 250;
+
+/**
+ * A pad's start nudge as (delay, skip) in seconds: a positive nudge delays the start, a negative
+ * one skips that far into the sound. Pure, so playback and export apply exactly the same shift.
+ */
+export function nudgeOf(pad: Pad): { delay: number; skip: number } {
+  const ms = Math.max(-MAX_NUDGE_MS, Math.min(MAX_NUDGE_MS, pad.nudgeMs ?? 0));
+  return ms >= 0 ? { delay: ms / 1000, skip: 0 } : { delay: 0, skip: -ms / 1000 };
+}
+
 export function startVoice(
   ctx: BaseAudioContext,
   dest: AudioNode,
@@ -147,6 +168,10 @@ export function startVoice(
   /** Start this many seconds into the hit (playback begun in the middle of a long sound). */
   skip = 0,
 ): VoiceHandle {
+  // The pad's start nudge shifts every hit the same way, live and offline.
+  const nudge = nudgeOf(pad);
+  when += nudge.delay;
+  skip += nudge.skip;
   const src = ctx.createBufferSource();
   src.buffer = ps.buffer;
   src.playbackRate.value = ps.rate;

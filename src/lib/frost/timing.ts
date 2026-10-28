@@ -9,6 +9,17 @@ export const STEPS_PER_BEAT = 4;
 
 export const stepDur = (bpm: number) => 60 / bpm / STEPS_PER_BEAT;
 
+/**
+ * Finest position an exact hit can sit on: 1/6 of a 16th step. That is the common grid of 1/32
+ * (½ step), 1/24 (⅔ step, 8th-note triplets) and 1/48 (⅓ step, 16th-note triplets).
+ */
+export const FINE_DIV = 6;
+export const FINE = 1 / FINE_DIV;
+/** Snap a step position (or length) onto the fine grid. */
+export const toFine = (v: number) => Math.round(v * FINE_DIV) / FINE_DIV;
+/** True when `v` sits on the fine grid (within float error). */
+export const onFine = (v: number) => Math.abs(v * FINE_DIV - Math.round(v * FINE_DIV)) < 1e-6;
+
 const GRID_STEPS: Record<Project["quantize"], number | null> = {
   off: null,
   "1/8": 2,
@@ -31,10 +42,11 @@ export function effectiveStep(
   const raw = note.step + note.offset;
   const g = GRID_STEPS[quantize];
   let pos = g == null || note.exact ? raw : Math.round(raw / g) * g;
-  // Swing unit is the quantize grid for 1/8 and 1/16, otherwise 16ths.
+  // Swing unit is the quantize grid for 1/8 and 1/16, otherwise 16ths. Only hits ON that grid
+  // swing: triplet / fine-grid positions (⅓, ⅔ step) and played offsets keep their own timing.
   const unit = g === 2 ? 2 : 1;
   const k = pos / unit;
-  if (Math.abs(k - Math.round(k)) < 1e-9 && Math.round(k) % 2 !== 0) {
+  if (Math.abs(k - Math.round(k)) < 1e-6 && Math.round(k) % 2 !== 0) {
     pos += ((Math.min(75, Math.max(50, swing)) - 50) / 50) * unit;
   }
   return ((pos % lengthSteps) + lengthSteps) % lengthSteps;
@@ -158,7 +170,11 @@ export function regionPattern(p: Project, pat: Pattern, from: number, to: number
  * Hits that start before `from` but are still sounding there (a long one-shot like a whole beat
  * bounced from a DAW): playback that starts at `from` joins them part-way, `skip` steps in.
  */
-export function soundingAt(p: Project, pat: Pattern, from: number): { note: NoteEvent; skip: number }[] {
+export function soundingAt(
+  p: Project,
+  pat: Pattern,
+  from: number,
+): { note: NoteEvent; skip: number }[] {
   if (from <= 0) return [];
   const sd = stepDur(p.bpm);
   const out: { note: NoteEvent; skip: number }[] = [];
@@ -168,7 +184,9 @@ export function soundingAt(p: Project, pat: Pattern, from: number): { note: Note
     const pad = p.pads.find((x) => x.id === n.padId);
     const slice = p.slices.find((x) => x.id === pad?.sliceId);
     if (!pad || !slice || pad.mode !== "oneshot") continue;
-    const end = n.length ? at + n.length : at + playPlan(padForHit(pad, n), slice, p.bpm).duration / sd;
+    const end = n.length
+      ? at + n.length
+      : at + playPlan(padForHit(pad, n), slice, p.bpm).duration / sd;
     if (end > from) out.push({ note: n, skip: from - at });
   }
   return out;
@@ -201,7 +219,8 @@ export function playPlan(pad: Pad, slice: Slice, bpm: number): PlayPlan {
   const pitchRate = Math.pow(2, pad.pitch / 12);
   if (pad.lengthUnit === "off" || lengthBeats(pad) <= 0 || dur <= 0) {
     // keep speed: stretch by the pitch ratio, then play faster/slower by it — new key, same length
-    if (pad.keepSpeed && pad.pitch && dur > 0) return { rate: pitchRate, stretch: pitchRate, duration: dur, pitchSemis: pad.pitch };
+    if (pad.keepSpeed && pad.pitch && dur > 0)
+      return { rate: pitchRate, stretch: pitchRate, duration: dur, pitchSemis: pad.pitch };
     return { rate: pitchRate, stretch: null, duration: dur / pitchRate, pitchSemis: pad.pitch };
   }
   const target = (lengthBeats(pad) * 60) / bpm;

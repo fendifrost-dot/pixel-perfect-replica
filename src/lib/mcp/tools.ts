@@ -142,7 +142,7 @@ export const tools = [
     name: "update_project",
     title: "Set name, BPM, feel",
     description:
-      "Rename the project, set the beat's BPM (40–300), the feel (quantize off|1/8|1/16|1/32, applied on playback; swing 50–75%), the bank shown on Pads, or the beat's key (beatKey, e.g. \"E minor\"; \"\" clears it — use suggest_key to find a recording's key, then set_pad pitch + keepSpeed to move samples into it).",
+      'Rename the project, set the beat\'s BPM (40–300), the feel (quantize off|1/8|1/16|1/32, applied on playback; swing 50–75%), the bank shown on Pads, or the beat\'s key (beatKey, e.g. "E minor"; "" clears it — use suggest_key to find a recording\'s key, then set_pad pitch + keepSpeed to move samples into it).',
     inputSchema: {
       project: PROJECT,
       name: z.string().optional(),
@@ -152,7 +152,10 @@ export const tools = [
       bank: z.enum(["A", "B", "C", "D"]).optional(),
       beatKey: z.string().optional(),
     },
-    handler: async ({ project, ...f }) => edit(project, (p) => ops.setProjectFields(p, { ...f, name: f.name == null ? undefined : cleanName(f.name) })),
+    handler: async ({ project, ...f }) =>
+      edit(project, (p) =>
+        ops.setProjectFields(p, { ...f, name: f.name == null ? undefined : cleanName(f.name) }),
+      ),
   }),
   defineTool({
     name: "list_drum_kits",
@@ -315,7 +318,12 @@ export const tools = [
     title: "Find a recording's key",
     description:
       "Estimate the musical key of a recording (WAV recordings only), or of part of it with start/end in seconds. Reported as it sounds at A = 440, with the recording's tuning offset in cents (e.g. a Baroque A = 415 band reads about a semitone low).",
-    inputSchema: { project: PROJECT, recording: z.string(), start: z.number().optional(), end: z.number().optional() },
+    inputSchema: {
+      project: PROJECT,
+      recording: z.string(),
+      start: z.number().optional(),
+      end: z.number().optional(),
+    },
     annotations: { readOnlyHint: true },
     handler: async ({ project, recording, start, end }) => {
       const key = await resolveKey(project);
@@ -474,7 +482,7 @@ export const tools = [
     name: "add_hits",
     title: "Add hits to a pattern",
     description:
-      "Add hits to a pattern. step = 16th note from the pattern start (0-based; 0–15 per bar, beat n starts at step 4n). velocity 1–127 (default the pad's), offset −0.5–0.49 of a step for played feel (heard when quantize is off). step may be a half step (x.5) for a 1/32 position; a step past the pattern's end makes the pattern longer (up to 256 bars). length = steps the hit sounds (0.5 = 1/32 note, 16 = a bar; loop pads repeat to fill it); omit for the pad's natural length. pitch = semitones on top of the pad for this hit (for the Instruments kit — 808 bass, sub, bass guitar, synth bass, keys, pluck — this plays a melody/bassline from one pad; add one with add_kit_drum kit=instruments). A hit on the same pad+step is replaced.",
+      "Add hits to a pattern. step = 16th note from the pattern start (0-based; 0–15 per bar, beat n starts at step 4n). velocity 1–127 (default the pad's), offset −0.5–0.49 of a step for played feel (heard when quantize is off). step may be fractional for a 1/32 (x.5), 1/24 (x.667) or 1/48 (x.333) position — any multiple of 1/6; a step past the pattern's end makes the pattern longer (up to 256 bars). length = steps the hit sounds (0.5 = 1/32 note, 16 = a bar; loop pads repeat to fill it); omit for the pad's natural length. pitch = semitones on top of the pad for this hit (for the Instruments kit — 808 bass, sub, bass guitar, synth bass, keys, pluck — this plays a melody/bassline from one pad; add one with add_kit_drum kit=instruments). A hit on the same pad+step is replaced.",
     inputSchema: {
       project: PROJECT,
       pattern: PATTERN,
@@ -527,7 +535,7 @@ export const tools = [
       project: PROJECT,
       pattern: PATTERN,
       pad: PAD,
-      steps: z.array(z.number().int()).optional(),
+      steps: z.array(z.number()).optional(),
     },
     handler: async ({ project, pattern, pad, steps }) =>
       edit(project, (p) => ops.removeHits(p, pattern, pad, steps)),

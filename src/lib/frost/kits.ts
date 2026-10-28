@@ -71,7 +71,14 @@ function env(n: number, sr: number, decay: number, hold = 0): Float32Array {
 }
 
 /** Sine whose frequency falls exponentially from f0 to f1 with time constant tau. */
-function sweep(n: number, sr: number, f0: number, f1: number, tau: number, harmonic = 1): Float32Array {
+function sweep(
+  n: number,
+  sr: number,
+  f0: number,
+  f1: number,
+  tau: number,
+  harmonic = 1,
+): Float32Array {
   const out = new Float32Array(n);
   let ph = 0;
   for (let i = 0; i < n; i++) {
@@ -195,11 +202,23 @@ function room(x: Float32Array, sr: number, size: number, mix: number, decay: num
 }
 
 /** Add `offsets` delayed copies (seconds) of a short noise burst — the multi-hand clap shape. */
-function clapBursts(n: number, sr: number, seed: number, offsets: number[], shortDecay: number, tailDecay: number, lo: number, hi: number) {
+function clapBursts(
+  n: number,
+  sr: number,
+  seed: number,
+  offsets: number[],
+  shortDecay: number,
+  tailDecay: number,
+  lo: number,
+  hi: number,
+) {
   const out = new Float32Array(n);
   offsets.forEach((off, i) => {
     const k = Math.round(off * sr);
-    const burst = mul(bp(noise(n - k, seed + i), sr, lo, hi), env(n - k, sr, i < offsets.length - 1 ? shortDecay : tailDecay));
+    const burst = mul(
+      bp(noise(n - k, seed + i), sr, lo, hi),
+      env(n - k, sr, i < offsets.length - 1 ? shortDecay : tailDecay),
+    );
     for (let j = 0; j < burst.length; j++) out[k + j] += burst[j];
   });
   return out;
@@ -246,7 +265,10 @@ const westside: KitDef = {
       level: 0.7,
       render: (sr) => {
         const n = secs(0.42, sr);
-        const shell = mul(add(gain(sine(n, sr, 185), 0.6), gain(sine(n, sr, 330), 0.35)), env(n, sr, 0.07));
+        const shell = mul(
+          add(gain(sine(n, sr, 185), 0.6), gain(sine(n, sr, 330), 0.35)),
+          env(n, sr, 0.07),
+        );
         const wires = mul(hp(noise(n, 21), sr, 1800), env(n, sr, 0.12), 0.9);
         const crack = mul(bp(noise(n, 22), sr, 2000, 6000), env(n, sr, 0.015), 0.9);
         return finish(room(sat(add(shell, wires, crack), 2.2), sr, 0.028, 0.22, 0.05), sr);
@@ -259,8 +281,15 @@ const westside: KitDef = {
       level: 0.45,
       render: (sr) => {
         const n = secs(0.18, sr);
-        const metal = gain(add(...[3100, 4300, 5700, 7900, 9300].map((f) => square(n, sr, f))), 0.1);
-        return finish(mul(hp(add(metal, gain(noise(n, 31), 0.7)), sr, 6500, 2), env(n, sr, 0.028)), sr, 0.8);
+        const metal = gain(
+          add(...[3100, 4300, 5700, 7900, 9300].map((f) => square(n, sr, f))),
+          0.1,
+        );
+        return finish(
+          mul(hp(add(metal, gain(noise(n, 31), 0.7)), sr, 6500, 2), env(n, sr, 0.028)),
+          sr,
+          0.8,
+        );
       },
     },
     {
@@ -270,8 +299,15 @@ const westside: KitDef = {
       level: 0.4,
       render: (sr) => {
         const n = secs(0.6, sr);
-        const metal = gain(add(...[3100, 4300, 5700, 7900, 9300].map((f) => square(n, sr, f))), 0.1);
-        return finish(mul(hp(add(metal, gain(noise(n, 41), 0.7)), sr, 6000, 2), env(n, sr, 0.2)), sr, 0.8);
+        const metal = gain(
+          add(...[3100, 4300, 5700, 7900, 9300].map((f) => square(n, sr, f))),
+          0.1,
+        );
+        return finish(
+          mul(hp(add(metal, gain(noise(n, 41), 0.7)), sr, 6000, 2), env(n, sr, 0.2)),
+          sr,
+          0.8,
+        );
       },
     },
     {
@@ -292,7 +328,10 @@ const westside: KitDef = {
       level: 0.5,
       render: (sr) => {
         const n = secs(0.2, sr);
-        const tone = mul(add(gain(sine(n, sr, 1700), 0.5), gain(sine(n, sr, 480), 0.5)), env(n, sr, 0.012));
+        const tone = mul(
+          add(gain(sine(n, sr, 1700), 0.5), gain(sine(n, sr, 480), 0.5)),
+          env(n, sr, 0.012),
+        );
         const click = mul(bp(noise(n, 61), sr, 1500, 5000), env(n, sr, 0.006), 0.8);
         return finish(sat(add(tone, click), 2), sr);
       },
@@ -304,7 +343,10 @@ const westside: KitDef = {
       level: 0.65,
       render: (sr) => {
         const n = secs(0.5, sr);
-        const x = add(mul(sweep(n, sr, 220, 115, 0.06), env(n, sr, 0.14)), mul(hp(noise(n, 71), sr, 1500), env(n, sr, 0.006), 0.4));
+        const x = add(
+          mul(sweep(n, sr, 220, 115, 0.06), env(n, sr, 0.14)),
+          mul(hp(noise(n, 71), sr, 1500), env(n, sr, 0.006), 0.4),
+        );
         return finish(room(sat(x, 1.8), sr, 0.03, 0.18, 0.05), sr);
       },
     },
@@ -341,9 +383,27 @@ const trap808: KitDef = {
   name: "Trap 808",
   blurb: "Gliding 808 subs, snappy snare, bright hats. Trap and drill.",
   drums: [
-    { id: "808c", name: "808 C", short: "808 C", level: 0.75, render: (sr) => eight08(sr, 32.7, 101) },
-    { id: "808f", name: "808 F", short: "808 F", level: 0.75, render: (sr) => eight08(sr, 43.65, 102) },
-    { id: "808d", name: "808 D distorted", short: "808 Dst", level: 0.7, render: (sr) => eight08(sr, 36.7, 103, true) },
+    {
+      id: "808c",
+      name: "808 C",
+      short: "808 C",
+      level: 0.75,
+      render: (sr) => eight08(sr, 32.7, 101),
+    },
+    {
+      id: "808f",
+      name: "808 F",
+      short: "808 F",
+      level: 0.75,
+      render: (sr) => eight08(sr, 43.65, 102),
+    },
+    {
+      id: "808d",
+      name: "808 D distorted",
+      short: "808 Dst",
+      level: 0.7,
+      render: (sr) => eight08(sr, 36.7, 103, true),
+    },
     {
       id: "snare",
       name: "Snare",
@@ -365,7 +425,10 @@ const trap808: KitDef = {
       level: 0.55,
       render: (sr) => {
         const n = secs(0.45, sr);
-        return finish(sat(clapBursts(n, sr, 121, [0, 0.011, 0.022, 0.035], 0.009, 0.13, 1200, 6000), 2), sr);
+        return finish(
+          sat(clapBursts(n, sr, 121, [0, 0.011, 0.022, 0.035], 0.009, 0.13, 1200, 6000), 2),
+          sr,
+        );
       },
     },
     {
@@ -375,7 +438,10 @@ const trap808: KitDef = {
       level: 0.45,
       render: (sr) => {
         const n = secs(0.12, sr);
-        const x = add(mul(hp(noise(n, 131), sr, 8000, 2), env(n, sr, 0.018)), mul(hp(noise(n, 132), sr, 12000), env(n, sr, 0.006), 0.6));
+        const x = add(
+          mul(hp(noise(n, 131), sr, 8000, 2), env(n, sr, 0.018)),
+          mul(hp(noise(n, 132), sr, 12000), env(n, sr, 0.006), 0.6),
+        );
         return finish(x, sr, 0.85, 3);
       },
     },
@@ -396,7 +462,10 @@ const trap808: KitDef = {
       level: 0.5,
       render: (sr) => {
         const n = secs(0.15, sr);
-        const x = add(mul(sine(n, sr, 2200), env(n, sr, 0.008)), mul(bp(noise(n, 151), sr, 2000, 7000), env(n, sr, 0.004)));
+        const x = add(
+          mul(sine(n, sr, 2200), env(n, sr, 0.008)),
+          mul(bp(noise(n, 151), sr, 2000, 7000), env(n, sr, 0.004)),
+        );
         return finish(sat(x, 2), sr);
       },
     },
@@ -407,7 +476,10 @@ const trap808: KitDef = {
       level: 0.45,
       render: (sr) => {
         const n = secs(0.2, sr);
-        const x = add(mul(bp(noise(n, 161), sr, 1800, 6500, 2), env(n, sr, 0.02)), mul(sine(n, sr, 900), env(n, sr, 0.01), 0.4));
+        const x = add(
+          mul(bp(noise(n, 161), sr, 1800, 6500, 2), env(n, sr, 0.02)),
+          mul(sine(n, sr, 900), env(n, sr, 0.01), 0.4),
+        );
         return finish(x, sr, 0.85);
       },
     },
@@ -418,7 +490,10 @@ const trap808: KitDef = {
       level: 0.4,
       render: (sr) => {
         const n = secs(0.7, sr);
-        const x = add(mul(sweep(n, sr, 1200, 420, 0.02), env(n, sr, 0.12)), mul(hp(noise(n, 171), sr, 4000), env(n, sr, 0.004), 0.5));
+        const x = add(
+          mul(sweep(n, sr, 1200, 420, 0.02), env(n, sr, 0.12)),
+          mul(hp(noise(n, 171), sr, 4000), env(n, sr, 0.004), 0.5),
+        );
         return finish(sat(x, 1.5), sr, 0.8);
       },
     },
@@ -430,7 +505,14 @@ const trap808: KitDef = {
 const hz = (midi: number) => 440 * Math.pow(2, (midi - 69) / 12);
 
 /** Plucked string (Karplus–Strong): a seeded noise burst circulating in a damped delay line. */
-function pluckString(sr: number, f: number, seconds: number, seed: number, damping: number, brightness: number): Float32Array {
+function pluckString(
+  sr: number,
+  f: number,
+  seconds: number,
+  seed: number,
+  damping: number,
+  brightness: number,
+): Float32Array {
   const n = secs(seconds, sr);
   const period = Math.max(2, Math.round(sr / f));
   const line = lp(noise(period, seed), sr, brightness);
@@ -474,7 +556,10 @@ function fmKeys(sr: number, f: number): Float32Array {
   for (let i = 0; i < n; i++) {
     const t = i / sr;
     const index = 0.4 + 2.2 * Math.exp(-t / 0.25);
-    out[i] = Math.sin(2 * Math.PI * f * t + index * Math.sin(2 * Math.PI * f * t)) * Math.exp(-t / 0.9) * Math.min(1, t / 0.003);
+    out[i] =
+      Math.sin(2 * Math.PI * f * t + index * Math.sin(2 * Math.PI * f * t)) *
+      Math.exp(-t / 0.9) *
+      Math.min(1, t / 0.003);
   }
   return out;
 }
@@ -488,7 +573,14 @@ const instruments: KitDef = {
   name: "Instruments",
   blurb: "Pitched sounds for hummed basslines and melodies: each hit plays its own note.",
   drums: [
-    { id: "808", name: "808 bass", short: "808", level: 0.75, rootMidi: 24, render: (sr) => eight08(sr, hz(24), 201) },
+    {
+      id: "808",
+      name: "808 bass",
+      short: "808",
+      level: 0.75,
+      rootMidi: 24,
+      render: (sr) => eight08(sr, hz(24), 201),
+    },
     {
       id: "sub",
       name: "Sub bass",
@@ -506,7 +598,8 @@ const instruments: KitDef = {
       short: "Bass",
       level: 0.7,
       rootMidi: 40,
-      render: (sr) => finish(lp(sat(pluckString(sr, hz(40), 2.2, 211, 0.998, 1800), 1.2), sr, 2400), sr, 0.9, 30),
+      render: (sr) =>
+        finish(lp(sat(pluckString(sr, hz(40), 2.2, 211, 0.998, 1800), 1.2), sr, 2400), sr, 0.9, 30),
     },
     {
       id: "synthbass",
@@ -516,10 +609,22 @@ const instruments: KitDef = {
       rootMidi: 36,
       render: (sr) => {
         const n = secs(1.8, sr);
-        return finish(sat(lp(mul(saw(n, sr, hz(36)), adEnv(n, sr, 0.005, 0.5)), sr, 700, 2), 1.6), sr, 0.9, 30);
+        return finish(
+          sat(lp(mul(saw(n, sr, hz(36)), adEnv(n, sr, 0.005, 0.5)), sr, 700, 2), 1.6),
+          sr,
+          0.9,
+          30,
+        );
       },
     },
-    { id: "keys", name: "Keys", short: "Keys", level: 0.55, rootMidi: 60, render: (sr) => finish(sat(fmKeys(sr, hz(60)), 1.1), sr, 0.85, 30) },
+    {
+      id: "keys",
+      name: "Keys",
+      short: "Keys",
+      level: 0.55,
+      rootMidi: 60,
+      render: (sr) => finish(sat(fmKeys(sr, hz(60)), 1.1), sr, 0.85, 30),
+    },
     {
       id: "pluck",
       name: "Pluck",
@@ -560,7 +665,10 @@ interface Sub808 {
 function metro808(sr: number, o: Sub808): Float32Array {
   const n = secs(o.len, sr);
   const f = hz(24);
-  const body = add(sweep(n, sr, f * o.drop, f, o.glide), gain(sweep(n, sr, f * o.drop, f, o.glide, 2), o.harm));
+  const body = add(
+    sweep(n, sr, f * o.drop, f, o.glide),
+    gain(sweep(n, sr, f * o.drop, f, o.glide, 2), o.harm),
+  );
   let x = mul(body, env(n, sr, o.decay, o.hold));
   if (o.kick) x = add(x, mul(sweep(n, sr, 190, 55, 0.025), env(n, sr, 0.07), o.kick));
   if (o.click) x = add(x, mul(hp(noise(n, o.seed), sr, 3000), env(n, sr, 0.0025), o.click));
@@ -580,7 +688,10 @@ const METRO_808S: [string, Partial<Sub808>][] = [
   // punchy: a kick on the front
   ["Punch", { len: 1.8, decay: 0.6, drop: 2.5, glide: 0.03, kick: 0.7, click: 0.25 }],
   ["Knock", { len: 1.6, decay: 0.5, drop: 3.0, glide: 0.02, kick: 0.9, click: 0.35, drive: 1.8 }],
-  ["Hard Hitter", { len: 2.0, decay: 0.7, drop: 2.8, glide: 0.025, kick: 0.8, click: 0.3, drive: 2.4 }],
+  [
+    "Hard Hitter",
+    { len: 2.0, decay: 0.7, drop: 2.8, glide: 0.025, kick: 0.8, click: 0.3, drive: 2.4 },
+  ],
   ["Thump", { len: 1.7, decay: 0.55, drop: 2.2, glide: 0.035, kick: 1.0, drive: 1.5 }],
   ["Bounce", { len: 1.4, decay: 0.42, drop: 3.4, glide: 0.018, kick: 0.6, click: 0.2 }],
   ["Slap", { len: 1.5, decay: 0.45, drop: 3.8, glide: 0.015, kick: 0.75, click: 0.5, drive: 2.0 }],
@@ -610,7 +721,8 @@ const METRO_808S: [string, Partial<Sub808>][] = [
 const metro808s: KitDef = {
   id: "metro808",
   name: "Metro-style 808s",
-  blurb: "30 trap 808s, all tuned to C1: long, punchy, distorted, sliding, short. Play them as notes.",
+  blurb:
+    "30 trap 808s, all tuned to C1: long, punchy, distorted, sliding, short. Play them as notes.",
   drums: METRO_808S.map(([name, o], i) => ({
     id: `m${String(i + 1).padStart(2, "0")}`,
     name: `808 ${String(i + 1).padStart(2, "0")} ${name}`,
@@ -618,7 +730,20 @@ const metro808s: KitDef = {
     level: 0.75,
     rootMidi: 24,
     render: (sr: number) =>
-      metro808(sr, { len: 2, decay: 0.8, hold: 0.04, drop: 2, glide: 0.03, harm: 0.15, kick: 0, click: 0.12, drive: 1.3, grit: 0, seed: 300 + i, ...o }),
+      metro808(sr, {
+        len: 2,
+        decay: 0.8,
+        hold: 0.04,
+        drop: 2,
+        glide: 0.03,
+        harm: 0.15,
+        kick: 0,
+        click: 0.12,
+        drive: 1.3,
+        grit: 0,
+        seed: 300 + i,
+        ...o,
+      }),
   })),
 };
 
@@ -648,7 +773,11 @@ interface KickSpec {
 function dreKick(sr: number, k: KickSpec): Float32Array {
   const n = secs(k.len, sr);
   const body = mul(sweep(n, sr, k.f0, k.f1, k.tau), env(n, sr, k.decay), 1.1);
-  const click = mul(bp(noise(n, k.seed), sr, k.clickHz * 0.6, k.clickHz * 1.6), env(n, sr, 0.004), k.click);
+  const click = mul(
+    bp(noise(n, k.seed), sr, k.clickHz * 0.6, k.clickHz * 1.6),
+    env(n, sr, 0.004),
+    k.click,
+  );
   const thud = mul(lp(noise(n, k.seed + 1), sr, 180), env(n, sr, 0.03), k.thud);
   let x = lp(sat(add(body, click, thud), k.drive), sr, k.top);
   if (k.room) x = room(x, sr, 0.6, k.room, 0.25);
@@ -659,23 +788,48 @@ const DRE_KICKS: [string, Partial<KickSpec>][] = [
   ["Hard Knock", { f0: 190, f1: 55, tau: 0.03, decay: 0.2, click: 0.6, clickHz: 2500, drive: 2.6 }],
   ["Studio Thud", { f0: 150, f1: 52, tau: 0.035, decay: 0.24, click: 0.3, thud: 0.5, drive: 2.0 }],
   ["Round", { f0: 140, f1: 50, tau: 0.04, decay: 0.3, click: 0.2, drive: 1.6 }],
-  ["Punch Tight", { f0: 200, f1: 60, tau: 0.022, decay: 0.14, click: 0.55, clickHz: 3000, drive: 2.4 }],
+  [
+    "Punch Tight",
+    { f0: 200, f1: 60, tau: 0.022, decay: 0.14, click: 0.55, clickHz: 3000, drive: 2.4 },
+  ],
   ["Low Boom", { f0: 120, f1: 45, tau: 0.05, decay: 0.36, click: 0.15, drive: 1.8, len: 0.7 }],
   ["Snappy", { f0: 220, f1: 62, tau: 0.018, decay: 0.12, click: 0.75, clickHz: 3500, drive: 2.2 }],
   ["Dusty", { f0: 160, f1: 54, tau: 0.03, decay: 0.22, click: 0.4, drive: 2.8, top: 4500 }],
-  ["Vinyl", { f0: 150, f1: 50, tau: 0.035, decay: 0.26, click: 0.35, thud: 0.3, drive: 2.4, top: 3800 }],
+  [
+    "Vinyl",
+    { f0: 150, f1: 50, tau: 0.035, decay: 0.26, click: 0.35, thud: 0.3, drive: 2.4, top: 3800 },
+  ],
   ["Fat", { f0: 170, f1: 48, tau: 0.04, decay: 0.32, click: 0.3, thud: 0.4, drive: 3.0 }],
   ["Classic", { f0: 175, f1: 56, tau: 0.028, decay: 0.2, click: 0.5, clickHz: 2200, drive: 2.0 }],
   ["Deep Pocket", { f0: 130, f1: 47, tau: 0.045, decay: 0.34, click: 0.25, drive: 2.0, len: 0.7 }],
   ["Slam", { f0: 210, f1: 58, tau: 0.025, decay: 0.18, click: 0.65, thud: 0.4, drive: 3.4 }],
   ["Warm", { f0: 145, f1: 53, tau: 0.035, decay: 0.25, click: 0.2, drive: 1.5, top: 6000 }],
   ["Room Kick", { f0: 165, f1: 54, tau: 0.03, decay: 0.2, click: 0.45, drive: 2.2, room: 0.25 }],
-  ["Big Room", { f0: 155, f1: 50, tau: 0.035, decay: 0.24, click: 0.4, drive: 2.0, room: 0.4, len: 0.7 }],
+  [
+    "Big Room",
+    { f0: 155, f1: 50, tau: 0.035, decay: 0.24, click: 0.4, drive: 2.0, room: 0.4, len: 0.7 },
+  ],
   ["Gritty", { f0: 185, f1: 57, tau: 0.026, decay: 0.19, click: 0.5, drive: 4.0, top: 7000 }],
   ["Soft Thump", { f0: 125, f1: 50, tau: 0.04, decay: 0.22, click: 0.1, thud: 0.6, drive: 1.4 }],
   ["Bump", { f0: 180, f1: 60, tau: 0.03, decay: 0.16, click: 0.45, clickHz: 1800, drive: 2.3 }],
-  ["Heavy", { f0: 200, f1: 46, tau: 0.04, decay: 0.3, click: 0.5, thud: 0.5, drive: 3.2, len: 0.7 }],
-  ["West Coast", { f0: 170, f1: 55, tau: 0.03, decay: 0.21, click: 0.55, clickHz: 2600, thud: 0.25, drive: 2.5, room: 0.15 }],
+  [
+    "Heavy",
+    { f0: 200, f1: 46, tau: 0.04, decay: 0.3, click: 0.5, thud: 0.5, drive: 3.2, len: 0.7 },
+  ],
+  [
+    "West Coast",
+    {
+      f0: 170,
+      f1: 55,
+      tau: 0.03,
+      decay: 0.21,
+      click: 0.55,
+      clickHz: 2600,
+      thud: 0.25,
+      drive: 2.5,
+      room: 0.15,
+    },
+  ],
 ];
 
 const dreKicks: KitDef = {
@@ -688,11 +842,452 @@ const dreKicks: KitDef = {
     short: `Kick ${i + 1}`,
     level: 0.8,
     render: (sr: number) =>
-      dreKick(sr, { len: 0.55, f0: 170, f1: 54, tau: 0.03, decay: 0.22, click: 0.4, clickHz: 2500, thud: 0, drive: 2.2, top: 9000, room: 0, seed: 400 + i * 3, ...k }),
+      dreKick(sr, {
+        len: 0.55,
+        f0: 170,
+        f1: 54,
+        tau: 0.03,
+        decay: 0.22,
+        click: 0.4,
+        clickHz: 2500,
+        thud: 0,
+        drive: 2.2,
+        top: 9000,
+        room: 0,
+        seed: 400 + i * 3,
+        ...k,
+      }),
   })),
 };
 
-export const KITS: KitDef[] = [westside, trap808, metro808s, dreKicks, instruments];
+// ---------------------------------------------------------------- Kit: "Metro-style drums" (trap percussion: hats, snares, claps, perc, FX)
+
+/** Reverse a hit so it swells into its end (reverse cymbals). */
+function reverseOf(x: Float32Array): Float32Array {
+  const out = new Float32Array(x.length);
+  for (let i = 0; i < x.length; i++) out[i] = x[x.length - 1 - i];
+  return out;
+}
+
+/** Metallic hat body: inharmonic square partials (ride/hat bell), plus noise, high-passed. */
+function hatBody(
+  n: number,
+  sr: number,
+  seed: number,
+  partials: number[],
+  metal: number,
+  noiseAmt: number,
+  hpHz: number,
+  order = 2,
+): Float32Array {
+  const m = gain(add(...partials.map((f) => square(n, sr, f))), metal / partials.length);
+  return hp(add(m, gain(noise(n, seed), noiseAmt)), sr, hpHz, order);
+}
+
+interface HatSpec {
+  len: number;
+  decay: number;
+  /** Second, faster decay layered in for a sharper tick (0 = none). */
+  tick: number;
+  partials: number[];
+  metal: number;
+  noise: number;
+  hp: number;
+  /** Low-pass to darken (0 = none). */
+  lp: number;
+  seed: number;
+}
+function closedHat(sr: number, h: HatSpec): Float32Array {
+  const n = secs(h.len, sr);
+  let x = mul(hatBody(n, sr, h.seed, h.partials, h.metal, h.noise, h.hp), env(n, sr, h.decay));
+  if (h.tick) x = add(x, mul(hp(noise(n, h.seed + 7), sr, 9000, 2), env(n, sr, h.tick), 0.7));
+  if (h.lp) x = lp(x, sr, h.lp);
+  return finish(x, sr, 0.85, 3);
+}
+
+interface SnareSpec {
+  len: number;
+  /** Shell tone frequencies and their decay. */
+  tones: number[];
+  toneDecay: number;
+  toneAmt: number;
+  /** Snare wires: high-passed noise. */
+  wireHp: number;
+  wireDecay: number;
+  wireAmt: number;
+  /** Crack: band-passed noise, very short. */
+  crack: number;
+  /** Clap layer bursts (seconds), empty for none. */
+  clap: number[];
+  clapAmt: number;
+  drive: number;
+  room: number;
+  roomSize: number;
+  roomDecay: number;
+  /** Low-pass for a dusty top (0 = none). */
+  lp: number;
+  /** Bit-crush-ish grit: quantise to 2^bits levels (0 = none). */
+  bits: number;
+  seed: number;
+}
+function trapSnare(sr: number, o: SnareSpec): Float32Array {
+  const n = secs(o.len, sr);
+  const tone = mul(
+    gain(add(...o.tones.map((f) => sine(n, sr, f))), o.toneAmt / o.tones.length),
+    env(n, sr, o.toneDecay),
+  );
+  const wires = mul(hp(noise(n, o.seed), sr, o.wireHp), env(n, sr, o.wireDecay), o.wireAmt);
+  const crack = mul(bp(noise(n, o.seed + 1), sr, 2500, 9000), env(n, sr, 0.018), o.crack);
+  let x = add(tone, wires, crack);
+  if (o.clap.length)
+    x = add(x, gain(clapBursts(n, sr, o.seed + 2, o.clap, 0.011, 0.09, 1000, 5000), o.clapAmt));
+  x = sat(x, o.drive);
+  if (o.bits) {
+    const q = Math.pow(2, o.bits);
+    x = x.map((v) => Math.round(v * q) / q);
+  }
+  if (o.lp) x = lp(x, sr, o.lp);
+  if (o.room) x = room(x, sr, o.roomSize, o.room, o.roomDecay);
+  return finish(x, sr);
+}
+
+const SNARE_BASE: SnareSpec = {
+  len: 0.42,
+  tones: [195, 330],
+  toneDecay: 0.045,
+  toneAmt: 0.8,
+  wireHp: 1500,
+  wireDecay: 0.1,
+  wireAmt: 0.7,
+  crack: 1,
+  clap: [],
+  clapAmt: 0,
+  drive: 2.4,
+  room: 0,
+  roomSize: 0.03,
+  roomDecay: 0.05,
+  lp: 0,
+  bits: 0,
+  seed: 900,
+};
+
+const METRO_HATS: [string, string, Partial<HatSpec>][] = [
+  ["hat1", "Hat tight", { len: 0.1, decay: 0.02, tick: 0.004 }],
+  ["hat2", "Hat crisp", { len: 0.14, decay: 0.03, tick: 0.006, metal: 0.4, hp: 9000 }],
+  [
+    "hat3",
+    "Hat dark",
+    { len: 0.16, decay: 0.045, tick: 0, metal: 0.7, noise: 0.5, hp: 5000, lp: 9000 },
+  ],
+  [
+    "hat4",
+    "Hat bright",
+    { len: 0.18, decay: 0.05, tick: 0.005, metal: 0.3, noise: 0.9, hp: 10000 },
+  ],
+  ["hat5", "Hat ticky", { len: 0.09, decay: 0.012, tick: 0.003, metal: 0.2, hp: 11000 }],
+  [
+    "hat6",
+    "Hat shaker",
+    { len: 0.2, decay: 0.08, tick: 0, metal: 0, noise: 1, hp: 6000, lp: 12000 },
+  ],
+];
+
+const metroDrums: KitDef = {
+  id: "metrodrums",
+  name: "Metro-style drums",
+  blurb:
+    "Trap percussion: six hats, two open hats, six snares, three claps, rim, snap, percs, shaker, reverse cymbal, crash.",
+  drums: [
+    ...METRO_HATS.map(([id, name, h], i) => ({
+      id,
+      name,
+      short: name.replace("Hat ", "Hat "),
+      level: 0.45,
+      render: (sr: number) =>
+        closedHat(sr, {
+          len: 0.12,
+          decay: 0.025,
+          tick: 0.004,
+          partials: [3300, 4700, 6100, 8300, 9700],
+          metal: 0.5,
+          noise: 0.7,
+          hp: 8000,
+          lp: 0,
+          seed: 700 + i * 3,
+          ...h,
+        }),
+    })),
+    {
+      id: "ohat1",
+      name: "Open hat short",
+      short: "Open S",
+      level: 0.4,
+      render: (sr) => {
+        const n = secs(0.35, sr);
+        return finish(
+          mul(
+            hatBody(n, sr, 731, [3300, 4700, 6100, 8300, 9700], 0.5, 0.7, 7000),
+            env(n, sr, 0.09),
+          ),
+          sr,
+          0.8,
+        );
+      },
+    },
+    {
+      id: "ohat2",
+      name: "Open hat long",
+      short: "Open L",
+      level: 0.4,
+      render: (sr) => {
+        const n = secs(0.8, sr);
+        return finish(
+          mul(
+            hatBody(n, sr, 741, [3100, 4300, 5700, 7900, 9300], 0.5, 0.7, 6500),
+            env(n, sr, 0.25),
+          ),
+          sr,
+          0.8,
+        );
+      },
+    },
+    {
+      id: "snr1",
+      name: "Snare hard",
+      short: "Snare H",
+      level: 0.75,
+      render: (sr) => trapSnare(sr, { ...SNARE_BASE, drive: 3, crack: 1.2, seed: 910 }),
+    },
+    {
+      id: "snr2",
+      name: "Snare + clap",
+      short: "Snr+Clp",
+      level: 0.72,
+      render: (sr) =>
+        trapSnare(sr, {
+          ...SNARE_BASE,
+          len: 0.45,
+          clap: [0, 0.009, 0.018],
+          clapAmt: 0.6,
+          wireDecay: 0.12,
+          seed: 920,
+        }),
+    },
+    {
+      id: "snr3",
+      name: "Snare tight crack",
+      short: "Snr Tgt",
+      level: 0.7,
+      render: (sr) =>
+        trapSnare(sr, {
+          ...SNARE_BASE,
+          len: 0.22,
+          toneDecay: 0.025,
+          wireDecay: 0.04,
+          crack: 1.4,
+          drive: 2.8,
+          seed: 930,
+        }),
+    },
+    {
+      id: "snr4",
+      name: "Snare roomy",
+      short: "Snr Rm",
+      level: 0.7,
+      render: (sr) =>
+        trapSnare(sr, {
+          ...SNARE_BASE,
+          len: 0.6,
+          wireDecay: 0.14,
+          room: 0.35,
+          roomSize: 0.04,
+          roomDecay: 0.09,
+          seed: 940,
+        }),
+    },
+    {
+      id: "snr5",
+      name: "Snare lo-fi",
+      short: "Snr LoFi",
+      level: 0.7,
+      render: (sr) =>
+        trapSnare(sr, {
+          ...SNARE_BASE,
+          len: 0.38,
+          lp: 5500,
+          bits: 5,
+          drive: 3.2,
+          wireHp: 900,
+          seed: 950,
+        }),
+    },
+    {
+      id: "snr6",
+      name: "Rim snare",
+      short: "RimSnr",
+      level: 0.65,
+      render: (sr) =>
+        trapSnare(sr, {
+          ...SNARE_BASE,
+          len: 0.3,
+          tones: [480, 1700, 230],
+          toneDecay: 0.03,
+          toneAmt: 1.1,
+          wireAmt: 0.35,
+          wireDecay: 0.06,
+          crack: 0.9,
+          drive: 2.6,
+          seed: 960,
+        }),
+    },
+    {
+      id: "clp1",
+      name: "Clap tight",
+      short: "Clap T",
+      level: 0.55,
+      render: (sr) =>
+        finish(
+          sat(clapBursts(secs(0.3, sr), sr, 970, [0, 0.009, 0.018], 0.008, 0.07, 1300, 6500), 2.2),
+          sr,
+        ),
+    },
+    {
+      id: "clp2",
+      name: "Clap wide",
+      short: "Clap W",
+      level: 0.55,
+      render: (sr) =>
+        finish(
+          sat(
+            clapBursts(
+              secs(0.5, sr),
+              sr,
+              980,
+              [0, 0.012, 0.023, 0.034, 0.047],
+              0.012,
+              0.14,
+              900,
+              5500,
+            ),
+            2,
+          ),
+          sr,
+        ),
+    },
+    {
+      id: "clp3",
+      name: "Clap reverb",
+      short: "Clap Rv",
+      level: 0.5,
+      render: (sr) => {
+        const n = secs(0.9, sr);
+        const x = sat(clapBursts(n, sr, 990, [0, 0.011, 0.022, 0.033], 0.01, 0.12, 1000, 6000), 2);
+        const tail = mul(bp(noise(n, 991), sr, 800, 7000), env(n, sr, 0.28, 0.03), 0.35);
+        return finish(add(x, tail), sr);
+      },
+    },
+    {
+      id: "rim",
+      name: "Rimshot",
+      short: "Rim",
+      level: 0.5,
+      render: (sr) => {
+        const n = secs(0.14, sr);
+        const x = add(
+          mul(add(gain(sine(n, sr, 1900), 0.5), gain(sine(n, sr, 520), 0.5)), env(n, sr, 0.01)),
+          mul(bp(noise(n, 1001), sr, 1800, 6500), env(n, sr, 0.005), 0.8),
+        );
+        return finish(sat(x, 2.2), sr);
+      },
+    },
+    {
+      id: "snap",
+      name: "Snap",
+      short: "Snap",
+      level: 0.45,
+      render: (sr) => {
+        const n = secs(0.2, sr);
+        const x = add(
+          mul(bp(noise(n, 1011), sr, 1800, 7000, 2), env(n, sr, 0.018)),
+          mul(sine(n, sr, 950), env(n, sr, 0.009), 0.4),
+        );
+        return finish(x, sr, 0.85);
+      },
+    },
+    {
+      id: "perc1",
+      name: "Perc pluck",
+      short: "Pluck",
+      level: 0.4,
+      render: (sr) => {
+        const n = secs(0.5, sr);
+        const x = add(
+          mul(sweep(n, sr, 1400, 520, 0.015), env(n, sr, 0.09)),
+          mul(hp(noise(n, 1021), sr, 4000), env(n, sr, 0.003), 0.5),
+        );
+        return finish(sat(x, 1.5), sr, 0.8);
+      },
+    },
+    {
+      id: "perc2",
+      name: "Perc wood",
+      short: "Wood",
+      level: 0.4,
+      render: (sr) => {
+        const n = secs(0.18, sr);
+        const x = add(
+          mul(add(sine(n, sr, 820), gain(sine(n, sr, 1230), 0.5)), env(n, sr, 0.018)),
+          mul(bp(noise(n, 1031), sr, 1500, 5000), env(n, sr, 0.004), 0.6),
+        );
+        return finish(sat(x, 1.8), sr, 0.8);
+      },
+    },
+    {
+      id: "shaker",
+      name: "Shaker",
+      short: "Shaker",
+      level: 0.35,
+      render: (sr) => {
+        const n = secs(0.22, sr);
+        const e = env(n, sr, 0.06);
+        for (let i = 0; i < n; i++) e[i] *= Math.min(1, i / (0.012 * sr)); // soft attack, like a shake
+        return finish(mul(bp(noise(n, 1041), sr, 4000, 13000, 2), e), sr, 0.8);
+      },
+    },
+    {
+      id: "revcym",
+      name: "Reverse cymbal",
+      short: "RevCym",
+      level: 0.45,
+      render: (sr) => {
+        // ~1 bar at 140 BPM (1.7 s): a cymbal played backwards, swelling into its end
+        const n = secs(1.7, sr);
+        const cym = mul(
+          hatBody(n, sr, 1051, [2900, 4100, 5300, 7700, 9900, 12300], 0.6, 0.8, 4000, 1),
+          env(n, sr, 0.55),
+        );
+        return finish(reverseOf(cym), sr, 0.85, 8);
+      },
+    },
+    {
+      id: "crash",
+      name: "Crash impact",
+      short: "Crash",
+      level: 0.5,
+      render: (sr) => {
+        const n = secs(1.6, sr);
+        const cym = mul(
+          hatBody(n, sr, 1061, [2700, 3900, 5100, 7300, 9500, 11700], 0.6, 0.9, 3500, 1),
+          env(n, sr, 0.5),
+        );
+        const boom = mul(sweep(n, sr, 160, 50, 0.04), env(n, sr, 0.25), 0.8);
+        return finish(sat(add(cym, boom), 1.6), sr, 0.9, 20);
+      },
+    },
+  ],
+};
+
+export const KITS: KitDef[] = [westside, trap808, metro808s, dreKicks, metroDrums, instruments];
 
 /** The pitched instruments (hum → bass / melody). */
 export const INSTRUMENTS = instruments;

@@ -8,6 +8,7 @@ import { keyName, parseKey } from "./key";
 import { createEmptyProject } from "./demo";
 import { assignDrum, ensureLane } from "./kitActions";
 import { findDrum, kitSourceId, KITS } from "./kits";
+import { FINE, toFine } from "./timing";
 import {
   BANKS,
   type Bank,
@@ -282,21 +283,32 @@ export const MIN_CHOP_SEC = 0.01;
  * Move a pad's chop edges. A fitted pad keeps its SPEED (½×, 1×, …): its length in beats scales
  * with the chop, so trimming a half-speed chop leaves it half speed, just shorter.
  */
-export function trimChop(p: Project, padId: string, start: number, end: number, keepSpeed = true): Project {
+export function trimChop(
+  p: Project,
+  padId: string,
+  start: number,
+  end: number,
+  keepSpeed = true,
+): Project {
   const pad = padOf(p, padId);
   const sid = must(pad.sliceId, `Pad ${pad.id} is empty; there is no chop to trim.`);
   const slice = p.slices.find((s) => s.id === sid)!;
   const total = p.sources.find((s) => s.id === slice.sourceId)?.durationSec || Infinity;
   const a = Math.max(0, Math.min(start, end));
   const b = Math.min(total, Math.max(start, end));
-  if (!(b - a >= MIN_CHOP_SEC)) throw new OpsError(`A chop must be at least ${MIN_CHOP_SEC * 1000} ms long.`);
+  if (!(b - a >= MIN_CHOP_SEC))
+    throw new OpsError(`A chop must be at least ${MIN_CHOP_SEC * 1000} ms long.`);
   let next = pad;
   const oldLen = slice.end - slice.start;
   if (keepSpeed && pad.lengthUnit !== "off" && oldLen > 0) {
-    const beats = (pad.lengthUnit === "bars" ? pad.lengthValue * 4 : pad.lengthValue) * ((b - a) / oldLen);
+    const beats =
+      (pad.lengthUnit === "bars" ? pad.lengthValue * 4 : pad.lengthValue) * ((b - a) / oldLen);
     // Not snapped to quarter beats: small trims must not round back and change the speed.
     const q = Math.max(0.01, Math.round(beats * 1000) / 1000);
-    next = q >= 4 && q % 4 === 0 ? { ...pad, lengthUnit: "bars", lengthValue: q / 4 } : { ...pad, lengthUnit: "beats", lengthValue: q };
+    next =
+      q >= 4 && q % 4 === 0
+        ? { ...pad, lengthUnit: "bars", lengthValue: q / 4 }
+        : { ...pad, lengthUnit: "beats", lengthValue: q };
   }
   return {
     ...p,
@@ -354,9 +366,17 @@ export function setPad(p: Project, padId: string, f: PadPatch): Project {
   }
   const out = { ...p, slices, pads: p.pads.map((x) => (x.id === pad.id ? next : x)) };
   if (f.chopStart == null && f.chopEnd == null) return out;
-  const cur = out.slices.find((s) => s.id === must(pad.sliceId, `Pad ${pad.id} is empty; there is no chop to trim.`))!;
+  const cur = out.slices.find(
+    (s) => s.id === must(pad.sliceId, `Pad ${pad.id} is empty; there is no chop to trim.`),
+  )!;
   // An explicit lengthBeats in the same call wins over keeping the speed.
-  return trimChop(out, pad.id, f.chopStart ?? cur.start, f.chopEnd ?? cur.end, f.lengthBeats == null);
+  return trimChop(
+    out,
+    pad.id,
+    f.chopStart ?? cur.start,
+    f.chopEnd ?? cur.end,
+    f.lengthBeats == null,
+  );
 }
 
 export function setBeatMarkers(
@@ -528,18 +548,22 @@ export function addHits(p: Project, patternId: string | undefined, hits: HitInpu
   let grownTo = pt.lengthSteps;
   for (const h of hits) {
     const pad = padOf(p, h.pad);
-    // Whole steps as before; a half step (1/32) is placed exactly, like the Timeline does.
-    const step = Math.round(h.step * 2) / 2;
-    const exact = step % 1 !== 0;
+    // Whole steps as before; a fractional step (1/32, 1/24, 1/48 — any multiple of 1/6) is placed
+    // exactly, like the Timeline does.
+    const step = toFine(h.step);
+    const exact = Math.abs(step - Math.round(step)) > 1e-9;
     // A hit past the end makes the pattern longer (like the Timeline), up to the maximum.
     if (!(step >= 0 && step < MAX_PATTERN_BARS * 16))
-      throw new OpsError(`Step ${h.step} is outside 0–${MAX_PATTERN_BARS * 16 - 1} (${MAX_PATTERN_BARS} bars).`);
+      throw new OpsError(
+        `Step ${h.step} is outside 0–${MAX_PATTERN_BARS * 16 - 1} (${MAX_PATTERN_BARS} bars).`,
+      );
     grownTo = Math.max(grownTo, stepsToFit(step));
     const velocity =
       h.velocity == null ? pad.velocity : Math.round(Math.min(127, Math.max(1, h.velocity)));
     const offset = h.offset == null ? 0 : Math.min(0.49, Math.max(-0.5, h.offset));
     const i = notes.findIndex((n) => n.padId === pad.id && n.step === step);
-    if (h.length != null && !(h.length >= 0.5)) throw new OpsError("length must be at least 0.5 steps (a 1/32 note).");
+    if (h.length != null && !(h.length >= FINE - 1e-9))
+      throw new OpsError("length must be at least 1/6 step (a 1/48 note is 1/3).");
     const note = {
       id: i >= 0 ? notes[i].id : rid("n"),
       padId: pad.id,
@@ -547,7 +571,7 @@ export function addHits(p: Project, patternId: string | undefined, hits: HitInpu
       velocity,
       offset: exact ? 0 : offset,
       ...(exact ? { exact } : {}),
-      ...(h.length != null ? { length: h.length } : {}),
+      ...(h.length != null ? { length: toFine(h.length) } : {}),
       ...(h.pitch ? { pitch: Math.round(Math.max(-48, Math.min(48, h.pitch))) } : {}),
     };
     if (i >= 0) notes[i] = note;
@@ -565,10 +589,11 @@ export function removeHits(
 ): Project {
   const pt = patternOf(p, patternId);
   const id = padOf(p, pad).id;
-  const set = steps ? new Set(steps.map(Math.round)) : null;
+  // Match fractional (1/32, triplet) positions too, so a hit the Timeline placed can be removed.
+  const set = steps ? new Set(steps.map((v) => toFine(v))) : null;
   return mapPattern(p, pt.id, (x) => ({
     ...x,
-    notes: x.notes.filter((n) => n.padId !== id || (set != null && !set.has(n.step))),
+    notes: x.notes.filter((n) => n.padId !== id || (set != null && !set.has(toFine(n.step)))),
   }));
 }
 
@@ -621,14 +646,18 @@ export const PAD_IDS = BANKS.flatMap((b) => Array.from({ length: 16 }, (_, i) =>
  * Lay the Song (patterns in order) out as one long pattern, so the whole track can be seen and
  * edited on the Timeline. Muted lanes are left out; the new pattern becomes current.
  */
-export function songToTimeline(p: Project, name = "Full song"): { project: Project; patternId: string } {
+export function songToTimeline(
+  p: Project,
+  name = "Full song",
+): { project: Project; patternId: string } {
   const sections = p.arrangement
     .map((b) => p.patterns.find((x) => x.id === b.patternId))
     .filter((x): x is Pattern => !!x);
   if (!sections.length) throw new OpsError("The song is empty — add patterns to it first.");
   const total = sections.reduce((n, x) => n + x.lengthSteps, 0);
   const bars = Math.ceil(total / 16);
-  if (bars > MAX_PATTERN_BARS) throw new OpsError(`The song is longer than ${MAX_PATTERN_BARS} bars.`);
+  if (bars > MAX_PATTERN_BARS)
+    throw new OpsError(`The song is longer than ${MAX_PATTERN_BARS} bars.`);
   const notes: Pattern["notes"] = [];
   let at = 0;
   for (const pt of sections) {

@@ -19,6 +19,7 @@ import type { Project, SourceAsset } from "@/lib/frost/types";
 import { HumRecorder } from "./HumRecorder";
 import { Waveform } from "./Waveform";
 import { FileList } from "./FileList";
+import { MAX_NUDGE_MS } from "@/lib/frost/voice";
 import { cn } from "@/lib/utils";
 
 const NO_PEAKS = new Float32Array(1);
@@ -165,6 +166,7 @@ function HumSession() {
   const [busy, setBusy] = useState<string | null>(null);
   const [files, setFiles] = useState<RenderedFile[]>([]);
   const [bpmEdit, setBpmEdit] = useState<string | null>(null);
+  const [nudgeEdit, setNudgeEdit] = useState<string | null>(null);
   const live = useRef({ project, metronome, repeat });
   live.current = { project, metronome, repeat };
 
@@ -278,6 +280,42 @@ function HumSession() {
               }}
             />
             BPM
+          </label>
+          <label
+            className="flex shrink-0 items-center gap-1 text-xs"
+            title="Move the song earlier (−) or later (+) so its first hit sits on bar 1"
+          >
+            <input
+              aria-label="Song start nudge in milliseconds"
+              className="field w-20 font-mono"
+              type="text"
+              inputMode="numeric"
+              pattern="-?[0-9]*"
+              value={nudgeEdit ?? String(backing.nudgeMs ?? 0)}
+              onFocus={(e) => e.target.select()}
+              onChange={(e) => setNudgeEdit(e.target.value.replace(/[^\d-]/g, ""))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                if (e.key === "Escape") setNudgeEdit(null);
+              }}
+              onBlur={() => {
+                const v = Number(nudgeEdit);
+                setNudgeEdit(null);
+                if (nudgeEdit == null || nudgeEdit.trim() === "" || !Number.isFinite(v)) return;
+                const ms = Math.max(-MAX_NUDGE_MS, Math.min(MAX_NUDGE_MS, Math.round(v)));
+                if (ms === (backing.nudgeMs ?? 0)) return;
+                commit((p) => ({
+                  ...p,
+                  pads: p.pads.map((x) => (x.id === backing.id ? { ...x, nudgeMs: ms } : x)),
+                }));
+                notify(
+                  ms
+                    ? `Song ${ms < 0 ? "pulled earlier" : "pushed later"} by ${Math.abs(ms)} ms — in playback and every export.`
+                    : "Song nudge cleared.",
+                );
+              }}
+            />
+            ms nudge
           </label>
         </div>
         {buffer ? (
