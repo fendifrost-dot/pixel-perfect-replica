@@ -1182,9 +1182,169 @@
 }
 
 /* Timeline controls from Claude's PRs #12 and #13 share the studio system. */
-.timeline-studio { min-width: 0; }
-.timeline-toolbar .field { width: auto; max-width: 180px; flex-shrink: 0; }
-.timeline-full { padding-top: max(6px, env(safe-area-inset-top)); padding-bottom: max(6px, env(safe-area-inset-bottom)); }
-.timeline-full .timeline-hit-panel { padding: 6px; border-radius: 10px; }
-.timeline-full .segmented-option { min-height: 34px; }
-.timeline-full .timeline-toolbar { border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+.timeline-studio {
+  min-width: 0;
+}
+.timeline-toolbar .field {
+  width: auto;
+  max-width: 180px;
+  flex-shrink: 0;
+}
+.timeline-full {
+  padding-top: max(6px, env(safe-area-inset-top));
+  padding-bottom: max(6px, env(safe-area-inset-bottom));
+}
+.timeline-full .timeline-hit-panel {
+  padding: 6px;
+  border-radius: 10px;
+}
+.timeline-full .segmented-option {
+  min-height: 34px;
+}
+.timeline-full .timeline-toolbar {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+
+/* Chop: the pad strip under the waveform */
+.chop-pads {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.chop-pad-row {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 6px;
+}
+@media (min-width: 900px) {
+  .chop-pad-row {
+    grid-template-columns: repeat(16, minmax(0, 1fr));
+  }
+}
+.chop-pad {
+  --pad-ink: #b9dcd7;
+  min-height: 38px;
+  border: 1px solid #46575d;
+  border-radius: 7px;
+  background: #26333a;
+  color: #8fa0a6;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  font-weight: 700;
+  touch-action: manipulation;
+}
+.chop-pad.pad-teal {
+  --pad-ink: #98d1bc;
+}
+.chop-pad.pad-purple {
+  --pad-ink: #bdb2de;
+}
+.chop-pad.pad-amber {
+  --pad-ink: #dfc29e;
+}
+.chop-pad.has-sound {
+  background: color-mix(in srgb, var(--pad-ink) 30%, #26333a);
+  border-color: color-mix(in srgb, var(--pad-ink) 60%, #293339);
+  color: var(--pad-ink);
+}
+.chop-pad.is-selected {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  color: #fff;
+}
+.chop-pad.is-learning {
+  outline: 2px solid #e7c36a;
+  outline-offset: 2px;
+}
+.chop-pad.is-hit,
+.chop-pad:active {
+  background: var(--pad-ink);
+  color: #172b2b;
+}
+/* Keyboard hints only where there is a keyboard */
+.kbd-hint {
+  display: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .kbd-hint {
+    display: inline;
+  }
+}
+
+/* MIDI: labelled top-bar button and the setup steps */
+.transport-icon.transport-midi {
+  width: auto;
+  gap: 8px;
+  padding: 0 12px;
+}
+.transport-midi .midi-copy {
+  display: grid;
+  text-align: left;
+  line-height: 1.15;
+}
+.transport-midi .midi-copy strong {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+.transport-midi .midi-copy small {
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  opacity: 0.8;
+}
+.transport-midi.is-waiting {
+  box-shadow: inset 0 0 0 1px #e7c36a;
+  color: #e7c36a;
+}
+@media (max-width: 640px) {
+  .transport-icon.transport-midi {
+    padding: 0 10px;
+  }
+  .transport-midi .midi-copy small {
+    max-width: 64px;
+  }
+}
+.midi-steps {
+  counter-reset: midi-step;
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+.midi-steps > li {
+  counter-increment: midi-step;
+  position: relative;
+  display: grid;
+  gap: 2px;
+  padding-left: 30px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.midi-steps > li::before {
+  content: counter(midi-step);
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  color: var(--foreground);
+}
+.midi-steps > li.is-done::before {
+  content: "✓";
+  background: var(--pad-teal);
+  border-color: var(--pad-teal);
+  color: #172b2b;
+}
+.midi-steps > li > strong {
+  font-size: 12px;
+  color: var(--foreground);
+}

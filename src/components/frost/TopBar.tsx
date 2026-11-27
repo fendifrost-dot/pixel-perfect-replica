@@ -128,17 +128,20 @@ export function TopBar() {
           </button>
           {midi.available && (
             <button
-              aria-label={midi.enabled ? "Turn MIDI input off" : "Turn MIDI input on"}
-              title={midi.enabled ? "MIDI input on" : "MIDI input off"}
-              aria-pressed={midi.enabled}
-              onClick={midi.toggle}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                midi.setSettingsOpen(true);
-              }}
-              className={cn("transport-icon", midi.enabled && "btn-on")}
+              aria-label={`MIDI controller: ${midi.status}. Open MIDI setup`}
+              title="MIDI controller — set up, learn pads, turn input on or off"
+              onClick={() => midi.setSettingsOpen(true)}
+              className={cn(
+                "transport-icon transport-midi",
+                midi.listening && "btn-on",
+                midi.enabled && !midi.listening && "is-waiting",
+              )}
             >
-              <KeyboardMusic className="size-4" />
+              <KeyboardMusic className="size-4 shrink-0" />
+              <span className="midi-copy">
+                <strong>MIDI</strong>
+                <small>{midi.status}</small>
+              </span>
             </button>
           )}
           <span className="transport-divider" />

@@ -3,8 +3,10 @@ import {
   ArrowUpRight,
   AudioWaveform,
   Eraser,
+  Grid3x3,
   Headphones,
   Maximize2,
+  Minus,
   Plus,
   Scissors,
   Square,
@@ -29,6 +31,16 @@ import { Waveform, type WaveMode } from "./Waveform";
 import { Segmented } from "./controls";
 import { cn } from "@/lib/utils";
 import { AiChop } from "./AiChop";
+import { useMidi } from "./Midi";
+import { useZoomKeys, ZOOM_KEYS_HINT } from "./zoomKeys";
+import {
+  nextEmptyPad,
+  viewForSelection,
+  zoomAnchor,
+  zoomView,
+  ZOOM_STEP,
+} from "@/lib/frost/waveView";
+import { BANKS, type Pad } from "@/lib/frost/types";
 
 type ChopMethod = "transients" | "equal" | "beats";
 
@@ -53,7 +65,9 @@ export function SampleView() {
   const [suggestion, setSuggestion] = useState<{ bpm: number; confidence: number } | null>(null);
   /** Key of the whole recording (found automatically) and of the selection (on request). */
   const [songKey, setSongKey] = useState<KeyResult | null | "working">(null);
-  const [selKey, setSelKey] = useState<{ range: [number, number]; key: KeyResult | null } | null>(null);
+  const [selKey, setSelKey] = useState<{ range: [number, number]; key: KeyResult | null } | null>(
+    null,
+  );
   const [srcBpm, setSrcBpm] = useState("");
   const [auditioning, setAuditioning] = useState(false);
   const auditionTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -68,6 +82,25 @@ export function SampleView() {
   const grid = src ? project.beatGrids[src.id] : undefined;
   const dur = src?.durationSec ?? 1;
   const selectedPad = project.pads.find((p) => p.id === project.selectedPadId);
+  const [showGrid, setShowGridState] = useState(gridPref.get);
+  const setShowGrid = (on: boolean) => {
+    gridPref.set(on);
+    setShowGridState(on);
+  };
+
+  /** Zoom the waveform: buttons and the Pro Tools keys share this. */
+  const zoom = (cmd: "in" | "out" | "all" | "selection"): boolean => {
+    if (!src || !peaks) return false;
+    const cur: [number, number] = view[1] > view[0] && view[1] <= dur + 1e-9 ? view : [0, dur];
+    if (cmd === "all") setView([0, dur]);
+    else if (cmd === "selection") {
+      if (!sel) return false;
+      setView(viewForSelection(sel, dur));
+    } else
+      setView(zoomView(cur, dur, cmd === "in" ? ZOOM_STEP : 1 / ZOOM_STEP, zoomAnchor(cur, sel)));
+    return true;
+  };
+  useZoomKeys(zoom, !!src && !!peaks);
 
   // New source: find its key in the background (a beat after the waveform appears).
   useEffect(() => {
@@ -254,6 +287,12 @@ export function SampleView() {
   const assignSelection = () => {
     if (!sel || !selectedPad) return;
     const id = uid();
+    const bankIds = project.pads.filter((x) => x.bank === selectedPad.bank).map((x) => x.id);
+    const next = nextEmptyPad(
+      project.pads.map((x) => (x.id === selectedPad.id ? { ...x, sliceId: id } : x)),
+      bankIds,
+      selectedPad.id,
+    );
     commit((p) => ({
       ...p,
       slices: [
@@ -267,9 +306,13 @@ export function SampleView() {
         },
       ],
       pads: p.pads.map((x) => (x.id === selectedPad.id ? { ...x, sliceId: id } : x)),
+      // Move on to the next free pad in this bank, so the next chop doesn't land on this one.
+      selectedPadId: next ?? p.selectedPadId,
     }));
     notify(
-      `Selection is on pad ${selectedPad.id}. Pick another pad on the Pads tab to assign the next one.`,
+      next
+        ? `Selection is on pad ${selectedPad.id}. Next up: pad ${next}.`
+        : `Selection is on pad ${selectedPad.id}. Bank ${selectedPad.bank} is full — pick a pad or another bank below.`,
     );
   };
 
@@ -411,6 +454,7 @@ export function SampleView() {
           selection={sel}
           markers={markers}
           beats={grid?.beats ?? []}
+          showGrid={showGrid}
           mode={mode}
           onSelect={setSel}
           onMarkers={setMarkers}
@@ -432,6 +476,7 @@ export function SampleView() {
             {mode === "beats" &&
               (grid ? "Drag beat markers onto the beat" : "Place beat markers under Tempo")}
             {" · pinch to zoom"}
+            <span className="kbd-hint"> · {ZOOM_KEYS_HINT}</span>
           </span>
           <span className="flex shrink-0 gap-1">
             {mode === "select" && sel && (
@@ -461,9 +506,37 @@ export function SampleView() {
                 <Eraser className="size-3.5" /> All
               </button>
             )}
+            <button
+              aria-label={showGrid ? "Hide grid lines" : "Show grid lines"}
+              title={`Grid lines: ${grid ? "bars and beats" : "time (place beat markers under Tempo for bars and beats)"}`}
+              aria-pressed={showGrid}
+              className={cn("btn min-h-8 px-2 text-[11px]", showGrid && "btn-on")}
+              onClick={() => setShowGrid(!showGrid)}
+            >
+              <Grid3x3 className="size-3.5" /> Grid
+            </button>
+            <button
+              aria-label="Zoom out"
+              title="Zoom out (R)"
+              className="btn min-h-8 w-9 px-0"
+              disabled={v1 - v0 >= dur - 1e-6}
+              onClick={() => zoom("out")}
+            >
+              <Minus className="size-4" />
+            </button>
+            <button
+              aria-label="Zoom in"
+              title="Zoom in (T)"
+              className="btn min-h-8 w-9 px-0"
+              disabled={v1 - v0 <= 0.02 + 1e-9}
+              onClick={() => zoom("in")}
+            >
+              <Plus className="size-4" />
+            </button>
             {v1 - v0 < dur - 1e-6 && (
               <button
                 aria-label="Show whole recording"
+                title="Show whole recording (⌥A)"
                 className="btn min-h-8 w-9 px-0"
                 onClick={() => setView([0, dur])}
               >
@@ -494,6 +567,8 @@ export function SampleView() {
             To pad {selectedPad?.id}
           </button>
         </div>
+
+        <ChopPadPicker />
       </section>
 
       <section className="panel space-y-3">
@@ -611,7 +686,13 @@ export function SampleView() {
         <div className="flex items-baseline justify-between gap-2">
           <span className="text-sm text-muted-foreground">Whole recording</span>
           <span className="flex items-center gap-2 font-mono text-sm">
-            {songKey === "working" ? "listening…" : songKey ? songKey.name : buffer ? "can't tell" : "—"}
+            {songKey === "working"
+              ? "listening…"
+              : songKey
+                ? songKey.name
+                : buffer
+                  ? "can't tell"
+                  : "—"}
             {songKey && songKey !== "working" && <UseAsBeatKey k={songKey} />}
           </span>
         </div>
@@ -627,7 +708,13 @@ export function SampleView() {
               <button
                 className="btn min-h-8 px-3 text-xs"
                 disabled={!buffer}
-                onClick={() => src && setSelKey({ range: [sel.start, sel.end], key: keyService.detect(src.id, sel.start, sel.end) })}
+                onClick={() =>
+                  src &&
+                  setSelKey({
+                    range: [sel.start, sel.end],
+                    key: keyService.detect(src.id, sel.start, sel.end),
+                  })
+                }
               >
                 Find key
               </button>
@@ -652,13 +739,131 @@ export function SampleView() {
   );
 }
 
+/** Whether the chop waveform shows its ruler and grid lines; remembered on this device. */
+const gridPref = {
+  get(): boolean {
+    try {
+      return localStorage.getItem("frost.chopGrid") !== "off";
+    } catch {
+      return true;
+    }
+  },
+  set(on: boolean) {
+    try {
+      localStorage.setItem("frost.chopGrid", on ? "on" : "off");
+    } catch {
+      // private mode: the choice lasts for this visit only
+    }
+  },
+};
+
+/**
+ * The pads, right under the waveform: pick the pad the next chop goes to (and hear what's already
+ * on it) without leaving Chop. Shows whichever bank is current; the bank can be changed here too.
+ */
+function ChopPadPicker() {
+  const { project, commit, notify } = useFrost();
+  const midi = useMidi();
+  const pads = project.pads.filter((p) => p.bank === project.bank);
+  const pick = (pad: Pad) => {
+    if (project.selectedPadId !== pad.id)
+      commit((p) => ({ ...p, selectedPadId: pad.id }), { history: false });
+    const slice = project.slices.find((s) => s.id === pad.sliceId);
+    if (!slice) return;
+    const go = () => {
+      if (!playbackService.triggerPad(pad, slice, pad.velocity, project.bpm))
+        notify(`Pad ${pad.id}: its recording isn't loaded on this device yet.`);
+    };
+    if (playbackService.isReady()) go();
+    else void playbackService.resume().then((ok) => ok && go());
+  };
+  return (
+    <div className="chop-pads" aria-label="Pad for the next chop">
+      <div className="flex items-center justify-between gap-2">
+        <span className="eyebrow">Send to pad</span>
+        <div className="flex gap-1" role="group" aria-label="Bank">
+          {BANKS.map((b) => (
+            <button
+              key={b}
+              aria-label={`Bank ${b}`}
+              aria-pressed={project.bank === b}
+              className={cn("btn min-h-8 w-9 px-0 text-[11px]", project.bank === b && "btn-on")}
+              onClick={() =>
+                commit(
+                  (p) => {
+                    if (p.bank === b) return p;
+                    // Keep the same pad number in the new bank selected.
+                    const from = p.pads.filter((x) => x.bank === p.bank);
+                    const to = p.pads.filter((x) => x.bank === b);
+                    const at = Math.max(
+                      0,
+                      from.findIndex((x) => x.id === p.selectedPadId),
+                    );
+                    return { ...p, bank: b, selectedPadId: to[at]?.id ?? p.selectedPadId };
+                  },
+                  { history: false },
+                )
+              }
+            >
+              {b}
+            </button>
+          ))}
+        </div>
+      </div>
+      {midi.available && midi.learningLabel && (
+        <div className="flex items-center justify-between gap-2 rounded-lg bg-black/30 px-3 py-2 text-xs">
+          <span>{midi.learningLabel}</span>
+          <button className="btn min-h-8 px-2 text-[10px]" onClick={midi.cancelLearn}>
+            Cancel
+          </button>
+        </div>
+      )}
+      <div className="chop-pad-row">
+        {pads.map((pad) => {
+          const slice = project.slices.find((s) => s.id === pad.sliceId);
+          return (
+            <button
+              key={pad.id}
+              aria-label={`Pad ${pad.id}${slice ? `, ${slice.name}` : ", empty"}`}
+              aria-pressed={project.selectedPadId === pad.id}
+              title={slice ? `${pad.id} · ${slice.name}` : `${pad.id} · empty`}
+              onPointerDown={() => pick(pad)}
+              onPointerUp={() => playbackService.releasePad(pad.id)}
+              onPointerLeave={() => playbackService.releasePad(pad.id)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  if (!e.repeat) pick(pad);
+                }
+              }}
+              className={cn(
+                "chop-pad",
+                `pad-${pad.color}`,
+                slice && "has-sound",
+                project.selectedPadId === pad.id && "is-selected",
+                midi.lit[pad.id] && "is-hit",
+                midi.learningPadId === pad.id && "is-learning",
+              )}
+            >
+              {pad.id}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /** Make a found key the beat's key — pads can then be matched to it. */
 function UseAsBeatKey({ k }: { k: KeyResult }) {
   const { project, commit } = useFrost();
   const same = project.key?.tonic === k.tonic && project.key?.mode === k.mode;
   if (same) return <span className="text-[11px] text-primary">beat key</span>;
   return (
-    <button className="btn min-h-7 px-2 text-[11px]" onClick={() => commit((p) => ({ ...p, key: { tonic: k.tonic, mode: k.mode } }))}>
+    <button
+      className="btn min-h-7 px-2 text-[11px]"
+      onClick={() => commit((p) => ({ ...p, key: { tonic: k.tonic, mode: k.mode } }))}
+    >
       Use as beat key
     </button>
   );

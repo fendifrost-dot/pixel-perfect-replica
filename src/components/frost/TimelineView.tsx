@@ -41,6 +41,7 @@ import { INSTRUMENTS, parseKitSourceId } from "@/lib/frost/kits";
 import { assignDrum, pruneKitSources } from "@/lib/frost/kitActions";
 import { kitService } from "@/lib/frost/engine";
 import { noteName } from "@/lib/frost/hum";
+import { useZoomKeys } from "./zoomKeys";
 import { cn } from "@/lib/utils";
 
 /**
@@ -389,6 +390,14 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     const el = scroller.current;
     if (el) zoomTo((el.clientWidth - LABEL_W - 4) / L, LABEL_W);
   };
+  // The same zoom keys as the Chop waveform (and Pro Tools): T / R, ⌘] / ⌘[, ⌥A to see it all.
+  useZoomKeys((cmd) => {
+    if (cmd === "in") zoomTo(ppsRef.current * 1.5);
+    else if (cmd === "out") zoomTo(ppsRef.current / 1.5);
+    else if (cmd === "all") fit();
+    else return false;
+    return true;
+  });
 
   // Two-finger pinch zooms around the fingers and pans with them; one finger scrolls natively.
   useEffect(() => {
@@ -673,7 +682,15 @@ export function TimelineView({ pat }: { pat: Pattern }) {
     }
     const quarters = Math.round(steps * 2); // 8 eighths of a beat = 4 steps
     if (Math.abs(steps * 2 - quarters) < 1e-6) {
-      const names: Record<number, string> = { 1: "⅛", 2: "¼", 3: "⅜", 4: "½", 5: "⅝", 6: "¾", 7: "⅞" };
+      const names: Record<number, string> = {
+        1: "⅛",
+        2: "¼",
+        3: "⅜",
+        4: "½",
+        5: "⅝",
+        6: "¾",
+        7: "⅞",
+      };
       if (names[quarters]) return names[quarters];
     }
     return (steps / 4).toFixed(2).replace(/^0/, "");
@@ -737,6 +754,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
       )}
       <button
         aria-label="Zoom out"
+        title="Zoom out (R)"
         className="btn min-h-9 w-9 px-0"
         disabled={pps <= MIN_PPS}
         onClick={() => zoomTo(pps / 1.5)}
@@ -745,6 +763,7 @@ export function TimelineView({ pat }: { pat: Pattern }) {
       </button>
       <button
         aria-label="Zoom in"
+        title="Zoom in (T)"
         className="btn min-h-9 w-9 px-0"
         disabled={pps >= MAX_PPS}
         onClick={() => zoomTo(pps * 1.5)}
@@ -1557,10 +1576,10 @@ export function TimelineView({ pat }: { pat: Pattern }) {
       Tap a track's name to focus it (fills the screen) or quantize it · Mic: hum a bassline or
       melody (or beatbox drums) and pick the instrument · Select (box icon) to pick several hits,
       drag them together, copy them or repeat them · hold a hit to copy, cut or delete it · hold
-      empty grid to paste · pinch to zoom · drag empty grid to scroll · drag the strip below the
-      grid to jump around · tap the grid to place a hit · drag a hit to move it (up or down to
-      change pads) · tap it, then drag the white handle to shorten it, down to 1/32. Loop pads
-      repeat to fill a longer hit.
+      empty grid to paste · pinch to zoom (keyboard: T in, R out, ⌥A fit) · drag empty grid to
+      scroll · drag the strip below the grid to jump around · tap the grid to place a hit · drag a
+      hit to move it (up or down to change pads) · tap it, then drag the white handle to shorten it,
+      down to 1/32. Loop pads repeat to fill a longer hit.
     </p>
   );
 

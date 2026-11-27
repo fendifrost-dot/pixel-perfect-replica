@@ -28,6 +28,10 @@ interface MidiApi {
   available: boolean;
   enabled: boolean;
   toggle: () => void;
+  /** A few words for the top bar: "Off", the controller's name, or what is missing. */
+  status: string;
+  /** True while input is on and a connected controller is being listened to. */
+  listening: boolean;
   lit: Record<string, boolean>;
   learningPadId: string | null;
   learningLabel: string | null;
@@ -90,6 +94,16 @@ export function MidiProvider({ children }: { children: ReactNode }) {
     const pad = s.project.pads.find((p) => p.id === padId);
     if (!pad) return;
     const slice = s.project.slices.find((sl) => sl.id === pad.sliceId);
+    // The pad you hit becomes the selected pad, as on the screen: knobs and "To pad" follow it.
+    if (s.project.selectedPadId !== padId)
+      s.commit(
+        (p) => ({
+          ...p,
+          selectedPadId: padId,
+          bank: p.pads.find((x) => x.id === padId)?.bank ?? p.bank,
+        }),
+        { history: false },
+      );
     const go = () => {
       flash(padId);
       if (!slice) return;
@@ -276,9 +290,25 @@ export function MidiProvider({ children }: { children: ReactNode }) {
           ? `Move a knob to control ${CC_LABEL[learning.target]}.`
           : null;
 
+  void tick;
+  const connectedInputs = available
+    ? midiService.inputs().filter((p) => p.state === "connected")
+    : [];
+  const activeInput = connectedInputs.find((p) => p.id === midiPrefs.inputId());
+  const listening = enabled && !!activeInput;
+  const status = !enabled
+    ? "Off"
+    : activeInput
+      ? activeInput.name
+      : connectedInputs.length
+        ? "Choose controller"
+        : "No controller";
+
   const api: MidiApi = {
     available,
     enabled,
+    status,
+    listening,
     toggle: () => void (enabledRef.current ? turnOff() : turnOn()),
     lit,
     learningPadId,
@@ -297,6 +327,7 @@ export function MidiProvider({ children }: { children: ReactNode }) {
           error={error}
           last={last}
           enabled={enabled}
+          onToggle={() => void (enabledRef.current ? turnOff() : turnOn())}
           outputOn={outputOn}
           channel={channel}
           offset={offset}
@@ -386,6 +417,7 @@ function MidiSheet({
   error,
   last,
   enabled,
+  onToggle,
   outputOn,
   channel,
   offset,
@@ -404,6 +436,7 @@ function MidiSheet({
   error: string | null;
   last: string | null;
   enabled: boolean;
+  onToggle: () => void;
   outputOn: boolean;
   channel: number;
   offset: number;
@@ -440,6 +473,10 @@ function MidiSheet({
           ? `Listening to ${inputs.find((p) => p.id === chosenIn)?.name}.`
           : "The chosen input is unplugged.";
   const [offsetText, setOffsetText] = useState<string | null>(null);
+  const listeningTo = enabled ? inputs.find((p) => p.id === chosenIn) : undefined;
+  const learnedCount = rows.filter((r) => project.midi?.notes[r.padId] != null).length;
+  const first = rows[0];
+  const lastRow = rows[rows.length - 1];
 
   return createPortal(
     <div
@@ -458,10 +495,17 @@ function MidiSheet({
             <X className="size-4" />
           </button>
         </div>
-        <p className={cn("text-xs", error ? "text-rec" : "text-muted-foreground")}>{status}</p>
-        {last && <p className="mt-1 font-mono text-[10px] text-muted-foreground">{last}</p>}
+        <button
+          className={cn("btn h-12 w-full", enabled ? "btn-on" : "btn-primary")}
+          aria-pressed={enabled}
+          onClick={onToggle}
+        >
+          <KeyboardMusic className="size-4" />
+          {enabled ? "MIDI input is on — tap to turn off" : "Turn MIDI input on"}
+        </button>
+        <p className={cn("mt-2 text-xs", error ? "text-rec" : "text-muted-foreground")}>{status}</p>
         {learning && (
-          <p className="mt-2 text-xs text-primary">
+          <p className="mt-2 rounded-md bg-primary/15 px-2 py-1.5 text-xs text-primary">
             {learning.kind === "cc"
               ? `Move a knob for ${CC_LABEL[learning.target]}.`
               : learning.kind === "pad"
@@ -470,35 +514,92 @@ function MidiSheet({
           </p>
         )}
 
-        <div className="eyebrow mb-1 mt-4">Input</div>
-        <PortList
-          ports={inputs}
-          chosen={chosenIn}
-          empty="Connect a controller, then turn MIDI input on."
-          onPick={(id) => midiPrefs.setInputId(id)}
-        />
+        <ol className="midi-steps">
+          <li className={cn(inputs.length > 0 && "is-done")}>
+            <strong>Plug in your controller</strong>
+            <span>
+              {inputs.length
+                ? `Connected: ${inputs.map((p) => p.name).join(", ")}.`
+                : enabled
+                  ? "Nothing is connected yet. Plug it in by USB — it appears here by itself."
+                  : "Plug it in by USB, then turn MIDI input on above. The browser asks once to allow MIDI."}
+            </span>
+            {enabled && inputs.length > 1 && (
+              <PortList
+                ports={inputs}
+                chosen={chosenIn}
+                empty=""
+                onPick={(id) => midiPrefs.setInputId(id)}
+              />
+            )}
+          </li>
+          <li className={cn(!!listeningTo && !!last && "is-done")}>
+            <strong>Hit a pad or key on it</strong>
+            <span>
+              {last
+                ? `Heard: ${last}`
+                : listeningTo
+                  ? `Listening to ${listeningTo.name}. Hit something — what it sends shows here.`
+                  : "Once input is on, anything you hit shows here, so you know it is getting through."}
+            </span>
+          </li>
+          <li className={cn(learnedCount > 0 && "is-done")}>
+            <strong>Match its pads to these pads</strong>
+            <span>
+              {first && lastRow
+                ? `Out of the box, note ${first.note} plays ${first.padId} and so on up to note ${lastRow.note} for ${lastRow.padId}. `
+                : ""}
+              If your controller's pads play the wrong sounds or nothing, tap Learn bank{" "}
+              {project.bank}, then hit your controller's pads in the order you want them: first hit
+              = {first?.padId ?? "pad 1"}, second = {rows[1]?.padId ?? "pad 2"}, and so on. The pad
+              waiting for a hit is outlined in yellow; Cancel stops early.
+              {learnedCount > 0
+                ? ` ${learnedCount} of ${rows.length} pads learned in this bank.`
+                : ""}
+            </span>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button className="btn btn-primary text-xs" onClick={onLearnBank}>
+                Learn bank {project.bank}
+              </button>
+              <button className="btn text-xs" onClick={onLearnPad}>
+                Learn only {project.selectedPadId ?? "the selected pad"}
+              </button>
+            </div>
+          </li>
+          <li className={cn((project.midi?.ccs.length ?? 0) > 0 && "is-done")}>
+            <strong>Knobs (optional)</strong>
+            <span>
+              Tap what a knob should control, then turn that knob. It then edits whichever pad you
+              hit last.
+            </span>
+            <div className="mt-2 grid grid-cols-4 gap-2">
+              {(["pitch", "volume", "start", "end"] as const).map((target) => {
+                const bound = project.midi?.ccs.find((c) => c.target === target);
+                return (
+                  <button
+                    key={target}
+                    className={cn("btn px-1 text-[10px]", bound && "btn-on")}
+                    title={bound ? `CC ${bound.cc}, channel ${bound.channel}` : "Not set"}
+                    onClick={() => onLearnCc(target)}
+                  >
+                    {CC_LABEL[target]}
+                  </button>
+                );
+              })}
+            </div>
+          </li>
+          <li>
+            <strong>Play the same chops in your DAW</strong>
+            <span>
+              Export → Chops for your DAW makes one Decent Sampler instrument using these same
+              notes, so each controller pad plays the same chop in LUNA. Turn MIDI input off here
+              while you record there, so a hit sounds once.
+            </span>
+          </li>
+        </ol>
 
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <button className="btn text-xs" onClick={onLearnPad}>
-            Learn selected pad
-          </button>
-          <button className="btn text-xs" onClick={onLearnBank}>
-            Learn bank {project.bank}
-          </button>
-        </div>
-        <p className="mt-2 text-[11px] text-muted-foreground">
-          Notes start at 36 and follow the pads in bank order. Learn assigns the next key you hit.
-          Knobs edit the selected pad.
-        </p>
-        <div className="mt-2 grid grid-cols-4 gap-2">
-          {(["pitch", "volume", "start", "end"] as const).map((target) => (
-            <button key={target} className="btn px-1 text-[10px]" onClick={() => onLearnCc(target)}>
-              {CC_LABEL[target]}
-            </button>
-          ))}
-        </div>
-
-        <ul className="mt-3 max-h-40 space-y-1 overflow-y-auto">
+        <div className="eyebrow mb-1 mt-4">Notes for bank {project.bank}</div>
+        <ul className="max-h-40 space-y-1 overflow-y-auto">
           {rows.map((row) => {
             const learned = project.midi?.notes[row.padId] != null;
             const name = project.slices.find(

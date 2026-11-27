@@ -7,7 +7,7 @@ import { BANKS, type Pad, type Slice } from "@/lib/frost/types";
 import { audioStore } from "@/lib/frost/audioStore";
 import { PadEditor } from "./PadEditor";
 import { DrumPicker } from "./DrumPicker";
-import { Drum, SlidersHorizontal, Square } from "lucide-react";
+import { Drum, KeyboardMusic, SlidersHorizontal, Square } from "lucide-react";
 import { Segmented } from "./controls";
 import { useMidi } from "./Midi";
 import { cn } from "@/lib/utils";
@@ -162,7 +162,7 @@ export function PadsView() {
           )}
           {midi.available && (
             <button className="btn mt-3 w-full text-xs" onClick={() => midi.setSettingsOpen(true)}>
-              Controller
+              <KeyboardMusic className="size-4" /> MIDI controller · {midi.status}
             </button>
           )}
           <div className="pad-grid no-touch-scroll">

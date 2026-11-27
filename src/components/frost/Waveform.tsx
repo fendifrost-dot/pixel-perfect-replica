@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { waveColumns } from "@/lib/frost/analysis";
+import { gridLines, zoomView } from "@/lib/frost/waveView";
 import { cn } from "@/lib/utils";
 
 export type WaveMode = "select" | "chop" | "beats";
@@ -16,6 +17,8 @@ interface Props {
   selection: { start: number; end: number } | null;
   markers: number[];
   beats: number[];
+  /** Draw the ruler and grid lines (bars and beats when there are beat markers, the clock otherwise). */
+  showGrid?: boolean;
   mode: WaveMode;
   onSelect: (start: number, end: number, final: boolean) => void;
   onMarkers: (m: number[], final: boolean) => void;
@@ -24,13 +27,17 @@ interface Props {
 }
 
 const MIN_SPAN = 0.02;
+/** Height of the ruler strip along the top of the waveform. */
+const RULER_H = 16;
 
 /**
  * Canvas waveform. One finger: select / add-drag chop markers / drag beat markers (by mode).
- * Two fingers: pinch to zoom, drag to scroll.
+ * Two fingers: pinch to zoom, drag to scroll. Mouse / trackpad: scroll sideways to move, pinch or
+ * Option-scroll to zoom (as in Pro Tools).
  */
 export function Waveform(props: Props) {
   const { buffer, peaks, duration, viewStart, viewEnd, selection, markers, beats, mode } = props;
+  const showGrid = props.showGrid ?? true;
   const canvas = useRef<HTMLCanvasElement>(null);
   const P = useRef(props);
   P.current = props;
@@ -67,20 +74,50 @@ export function Waveform(props: Props) {
         g.fillRect(tx(selection.start), 0, tx(selection.end) - tx(selection.start), h);
         g.globalAlpha = 1;
       }
-      // beat grid underneath
+      // ruler + grid underneath: bars / beats when the recording has beat markers, else the clock
+      if (showGrid) {
+        const ink = css.getPropertyValue("--foreground").trim() || "#ffffff";
+        g.fillStyle = ink;
+        g.globalAlpha = 0.07;
+        g.fillRect(0, 0, w, RULER_H);
+        g.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
+        g.textBaseline = "middle";
+        let lastLabelEnd = -Infinity;
+        for (const line of gridLines(beats, viewStart, viewEnd, w)) {
+          const x = Math.round(tx(line.t));
+          g.fillStyle = ink;
+          g.globalAlpha = line.major ? 0.3 : 0.12;
+          g.fillRect(x, line.major ? 0 : RULER_H, 1, line.major ? h : h - RULER_H);
+          if (line.label && x + 4 > lastLabelEnd && x + 4 < w) {
+            g.globalAlpha = line.major ? 0.85 : 0.5;
+            g.fillText(line.label, x + 4, RULER_H / 2 + 0.5);
+            lastLabelEnd = x + 10 + g.measureText(line.label).width;
+          }
+        }
+        g.globalAlpha = 1;
+      }
+      // the recording's own beat markers
       g.fillStyle = purple;
       for (let i = 0; i < beats.length; i++) {
         const t = beats[i];
         if (t < viewStart || t > viewEnd) continue;
         g.globalAlpha = mode === "beats" ? 0.9 : 0.4;
         g.fillRect(tx(t) - 0.5, 0, i % 4 === 0 ? 2 : 1, h);
-        if (mode === "beats") g.fillRect(tx(t) - 6, 0, 12, 12);
+        if (mode === "beats") g.fillRect(tx(t) - 6, showGrid ? RULER_H : 0, 12, 12);
       }
       g.globalAlpha = 1;
       g.fillStyle = wave;
       const mid = h / 2;
       const cols = Math.max(1, Math.floor(w));
-      const data = buffer ? waveColumns(Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i)), buffer.sampleRate, viewStart, viewEnd, cols) : null;
+      const data = buffer
+        ? waveColumns(
+            Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i)),
+            buffer.sampleRate,
+            viewStart,
+            viewEnd,
+            cols,
+          )
+        : null;
       for (let x = 0; x < cols; x++) {
         let lo: number, hi: number;
         if (data) {
@@ -115,7 +152,42 @@ export function Waveform(props: Props) {
     const ro = new ResizeObserver(draw);
     ro.observe(c);
     return () => ro.disconnect();
-  }, [buffer, peaks, duration, viewStart, viewEnd, selection, markers, beats, mode]);
+  }, [buffer, peaks, duration, viewStart, viewEnd, selection, markers, beats, mode, showGrid]);
+
+  // Wheel: sideways (or Shift) scroll moves along the recording; pinch (which the browser reports
+  // as Ctrl-wheel) and Option-scroll zoom around the pointer. Needs a non-passive listener so the
+  // page itself doesn't zoom or scroll sideways.
+  useEffect(() => {
+    const c = canvas.current;
+    if (!c) return;
+    const onWheel = (e: WheelEvent) => {
+      const p = P.current;
+      const span = p.viewEnd - p.viewStart;
+      const r = c.getBoundingClientRect();
+      if (e.ctrlKey || e.altKey || e.metaKey) {
+        e.preventDefault();
+        const at = p.viewStart + ((e.clientX - r.left) / r.width) * span;
+        const delta = e.deltaY || e.deltaX;
+        const [a, b] = zoomView(
+          [p.viewStart, p.viewEnd],
+          p.duration,
+          Math.exp(-delta * (e.ctrlKey ? 0.01 : 0.002)),
+          at,
+          MIN_SPAN,
+        );
+        p.onView(a, b);
+        return;
+      }
+      const dx = e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX;
+      if (!dx || Math.abs(dx) < Math.abs(e.deltaY) * (e.shiftKey ? 0 : 1)) return;
+      if (span >= p.duration - 1e-9) return;
+      e.preventDefault();
+      const s = Math.min(Math.max(0, p.viewStart + (dx / r.width) * span), p.duration - span);
+      p.onView(s, s + span);
+    };
+    c.addEventListener("wheel", onWheel, { passive: false });
+    return () => c.removeEventListener("wheel", onWheel);
+  }, []);
 
   const timeAt = (clientX: number) => {
     const p = P.current;
@@ -125,10 +197,14 @@ export function Waveform(props: Props) {
   };
   const tol = () => 22 / (canvas.current!.clientWidth / (P.current.viewEnd - P.current.viewStart));
   const nearest = (list: number[], t: number) => {
-    let bi = -1, bd = Infinity;
+    let bi = -1,
+      bd = Infinity;
     list.forEach((m, i) => {
       const d = Math.abs(m - t);
-      if (d < bd) { bd = d; bi = i; }
+      if (d < bd) {
+        bd = d;
+        bi = i;
+      }
     });
     return bd < tol() ? bi : -1;
   };
@@ -136,14 +212,22 @@ export function Waveform(props: Props) {
   const startPinch = () => {
     const xs = [...pointers.current.values()];
     const p = P.current;
-    pinch.current = { d0: Math.max(10, Math.abs(xs[0] - xs[1])), c0: timeAt((xs[0] + xs[1]) / 2), s0: p.viewStart, e0: p.viewEnd };
+    pinch.current = {
+      d0: Math.max(10, Math.abs(xs[0] - xs[1])),
+      c0: timeAt((xs[0] + xs[1]) / 2),
+      s0: p.viewStart,
+      e0: p.viewEnd,
+    };
     drag.current = null;
   };
 
   return (
     <canvas
       ref={canvas}
-      className={cn("no-touch-scroll block w-full rounded-md bg-background", props.className ?? "h-44 sm:h-56")}
+      className={cn(
+        "no-touch-scroll block w-full rounded-md bg-background",
+        props.className ?? "h-44 sm:h-56",
+      )}
       onPointerDown={(e) => {
         (e.target as Element).setPointerCapture(e.pointerId);
         pointers.current.set(e.pointerId, e.clientX);
@@ -153,7 +237,8 @@ export function Waveform(props: Props) {
         const t = timeAt(e.clientX);
         // A chop marker under the finger can be tapped away (or dragged) in any mode.
         const onMarker = nearest(p.markers, t);
-        const grab = (index: number, created = false) => (drag.current = { kind: "marker", index, moved: false, created, x0: e.clientX });
+        const grab = (index: number, created = false) =>
+          (drag.current = { kind: "marker", index, moved: false, created, x0: e.clientX });
         if (p.mode === "chop") {
           if (onMarker >= 0) grab(onMarker);
           else {
@@ -168,8 +253,10 @@ export function Waveform(props: Props) {
           else drag.current = null;
         } else {
           const s = p.selection;
-          if (s && Math.abs(t - s.start) < tol()) drag.current = { kind: "sel", mode: "start", anchor: s.end };
-          else if (s && Math.abs(t - s.end) < tol()) drag.current = { kind: "sel", mode: "end", anchor: s.start };
+          if (s && Math.abs(t - s.start) < tol())
+            drag.current = { kind: "sel", mode: "start", anchor: s.end };
+          else if (s && Math.abs(t - s.end) < tol())
+            drag.current = { kind: "sel", mode: "end", anchor: s.start };
           else if (onMarker >= 0) grab(onMarker);
           else drag.current = { kind: "sel", mode: "new", anchor: t };
         }
@@ -194,7 +281,8 @@ export function Waveform(props: Props) {
         if (!d) return;
         const t = timeAt(e.clientX);
         if (d.kind === "sel") {
-          const a = Math.min(t, d.anchor), b = Math.max(t, d.anchor);
+          const a = Math.min(t, d.anchor),
+            b = Math.max(t, d.anchor);
           if (b - a > 0.002) p.onSelect(a, b, false);
         } else if (d.kind === "marker") {
           // a finger tap wobbles a few pixels: only a real drag moves the marker
@@ -221,8 +309,16 @@ export function Waveform(props: Props) {
         if (d.kind === "sel" && p.selection) p.onSelect(p.selection.start, p.selection.end, true);
         else if (d.kind === "marker") {
           // tapping an existing marker without moving it removes it
-          if (!d.moved && !d.created) p.onMarkers(p.markers.filter((_, i) => i !== d.index), true);
-          else p.onMarkers([...p.markers].sort((a, b) => a - b), true);
+          if (!d.moved && !d.created)
+            p.onMarkers(
+              p.markers.filter((_, i) => i !== d.index),
+              true,
+            );
+          else
+            p.onMarkers(
+              [...p.markers].sort((a, b) => a - b),
+              true,
+            );
         } else if (d.kind === "beat") p.onBeatMove(d.index, p.beats[d.index], true);
       }}
       onPointerCancel={(e) => {
