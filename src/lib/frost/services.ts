@@ -139,6 +139,14 @@ export interface RenderService {
   ): Promise<{ files: RenderedFile[]; skipped: string[] }>;
   /** A Hum session's layers (beat muted): one WAV each, their mix, and a MIDI file — all from the beat's bar 1. */
   renderHumLayers(p: Project, onProgress?: (msg: string) => void): Promise<RenderedFile[]>;
+  /**
+   * The project's chops as one Decent Sampler zip, on the project's MIDI note map.
+   * Each pad is rendered as it plays (pitch, reverse, fades, stretch, volume).
+   */
+  renderChopPack(
+    p: Project,
+    onProgress?: (msg: string) => void,
+  ): Promise<{ file: RenderedFile; skipped: string[] }>;
 }
 
 /** One microphone take, in the playback clock (so it lines up with the beat). */

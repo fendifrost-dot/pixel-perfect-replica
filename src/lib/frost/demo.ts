@@ -1,5 +1,5 @@
 import { audioStore } from "./audioStore";
-import { BANKS, SCHEMA_VERSION, type Pad, type PadColor, type Project } from "./types";
+import { BANKS, emptyMidi, SCHEMA_VERSION, type Pad, type PadColor, type Project } from "./types";
 
 export const DEMO_SOURCE_ID = "demo_source";
 
@@ -30,7 +30,7 @@ export function makePad(bank: (typeof BANKS)[number], index: number): Pad {
 function demoPeaks(bins = 2000) {
   const out = new Float32Array(bins);
   let seed = 7;
-  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   for (let i = 0; i < bins; i++) {
     const beat = (i % 62) / 62;
     const env = Math.exp(-beat * 5);
@@ -57,7 +57,11 @@ export function createDemoProject(): Project {
     velocity,
     offset: 0,
   });
-  const lanes = ["A1", "A2", "A3", "A4", "A5"].map((padId) => ({ padId, mute: false, solo: false }));
+  const lanes = ["A1", "A2", "A3", "A4", "A5"].map((padId) => ({
+    padId,
+    mute: false,
+    solo: false,
+  }));
   return {
     schemaVersion: SCHEMA_VERSION,
     name: "Demo — Night Drive",
@@ -93,13 +97,23 @@ export function createDemoProject(): Project {
         lengthSteps: 16,
         lanes,
         notes: [
-          n("A1", 0, 120), n("A1", 7, 90), n("A1", 10, 110),
-          n("A2", 4), n("A2", 12),
+          n("A1", 0, 120),
+          n("A1", 7, 90),
+          n("A1", 10, 110),
+          n("A2", 4),
+          n("A2", 12),
           ...[0, 2, 4, 6, 8, 10, 12, 14].map((s) => n("A3", s, s % 4 ? 70 : 95)),
-          n("A4", 0, 90), n("A5", 8, 85),
+          n("A4", 0, 90),
+          n("A5", 8, 85),
         ],
       },
-      { id: "p2", name: "Pattern 2", lengthSteps: 16, lanes, notes: [n("A1", 0), n("A2", 4), n("A1", 8), n("A2", 12)] },
+      {
+        id: "p2",
+        name: "Pattern 2",
+        lengthSteps: 16,
+        lanes,
+        notes: [n("A1", 0), n("A2", 4), n("A1", 8), n("A2", 12)],
+      },
     ],
     currentPatternId: "p1",
     arrangement: [
@@ -107,7 +121,16 @@ export function createDemoProject(): Project {
       { id: "b2", patternId: "p1", label: "Verse" },
       { id: "b3", patternId: "p1", label: "Hook" },
     ],
-    export: { mode: "stereo", bitDepth: 24, sampleRate: 48000, range: "song", patternRepeats: 4, includeTails: true, tailSec: 2 },
+    export: {
+      mode: "stereo",
+      bitDepth: 24,
+      sampleRate: 48000,
+      range: "song",
+      patternRepeats: 4,
+      includeTails: true,
+      tailSec: 2,
+    },
+    midi: emptyMidi(),
   };
 }
 
@@ -134,6 +157,15 @@ export function createEmptyProject(name = "Untitled beat"): Project {
     patterns: [{ id: "p1", name: "Pattern 1", lengthSteps: 32, lanes: [], notes: [] }],
     currentPatternId: "p1",
     arrangement: [],
-    export: { mode: "stems", bitDepth: 24, sampleRate: 48000, range: "pattern", patternRepeats: 4, includeTails: true, tailSec: 2 },
+    export: {
+      mode: "stems",
+      bitDepth: 24,
+      sampleRate: 48000,
+      range: "pattern",
+      patternRepeats: 4,
+      includeTails: true,
+      tailSec: 2,
+    },
+    midi: emptyMidi(),
   };
 }

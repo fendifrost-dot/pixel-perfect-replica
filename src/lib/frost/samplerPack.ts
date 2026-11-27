@@ -7,6 +7,8 @@
  * - Drum kits: one preset with a sound on each key from MIDI note 36 up.
  */
 import type { KitDef } from "./kits";
+import { noteMap } from "./noteMap";
+import type { Pad, Project } from "./types";
 import { encodeWav24 } from "./wav";
 import { makeZip, type ZipEntry } from "./zip";
 import { noteName } from "./hum";
@@ -21,7 +23,7 @@ const fileSafe = (s: string) => s.replace(/[\\/:*?"<>|]+/g, "").trim();
 /** True when every sound in the kit has a root note: played as notes rather than one-per-key. */
 export const isPitchedKit = (kit: KitDef) => kit.drums.every((d) => d.rootMidi != null);
 
-function knobs(release: number): string {
+function knobs(release: number, withRelease = true): string {
   const knob = (
     x: number,
     label: string,
@@ -40,14 +42,16 @@ function knobs(release: number): string {
       0.001,
       `<binding type="amp" level="instrument" position="0" parameter="ENV_ATTACK"/>`,
     ),
-    knob(
-      190,
-      "Release",
-      0,
-      3,
-      release,
-      `<binding type="amp" level="instrument" position="0" parameter="ENV_RELEASE"/>`,
-    ),
+    withRelease
+      ? knob(
+          190,
+          "Release",
+          0,
+          3,
+          release,
+          `<binding type="amp" level="instrument" position="0" parameter="ENV_RELEASE"/>`,
+        )
+      : "",
     knob(
       340,
       "Tune",
@@ -156,4 +160,114 @@ export function buildSamplerPack(
   }
   entries.push({ name: `${folder}/README.txt`, data: enc.encode(readme(kit, folder, pitched)) });
   return { fileName: `${folder.replace(/\s+/g, "_")}.zip`, bytes: makeZip(entries) };
+}
+
+/** Pads that have a chop, in map order, each with the note `noteMap` gives it. */
+export function chopAssignments(p: Project): { pad: Pad; note: number }[] {
+  const byId = new Map(p.pads.map((pad) => [pad.id, pad]));
+  const out: { pad: Pad; note: number }[] = [];
+  for (const m of noteMap(p.pads, p.midi?.notes)) {
+    const pad = byId.get(m.padId);
+    if (pad?.sliceId) out.push({ pad, note: m.note });
+  }
+  return out;
+}
+
+export interface ChopPackSample {
+  padId: string;
+  chopName: string;
+  note: number;
+  wav: Uint8Array;
+  /** Seconds the amp fades after note-off. Long for one-shots, so the hit rings. */
+  release: number;
+  loop: boolean;
+  frames: number;
+}
+
+/**
+ * The project's chops as one Decent Sampler preset. Paths stay put across re-exports:
+ * `Chops.dspreset` and `Samples/<pad id>.wav`, so a DAW session keeps the instrument.
+ */
+export function buildChopPack(opts: {
+  projectName: string;
+  samples: ChopPackSample[];
+  omitted?: { padId: string; reason: string }[];
+}): { fileName: string; bytes: Uint8Array } {
+  const title = fileSafe(opts.projectName) || "Chops";
+  const folder = `Frost ${title}`;
+  const enc = new TextEncoder();
+  const entries: ZipEntry[] = [];
+  const seenNote = new Set<number>();
+  const samples = opts.samples.filter((s) => {
+    if (seenNote.has(s.note)) return false;
+    seenNote.add(s.note);
+    return true;
+  });
+  for (const s of samples) {
+    entries.push({ name: `${folder}/Samples/${fileSafe(s.padId)}.wav`, data: s.wav });
+  }
+  const groups = new Map<string, ChopPackSample[]>();
+  for (const s of samples) {
+    const key = `${s.loop ? "loop" : "once"}|${s.release.toFixed(3)}`;
+    groups.set(key, [...(groups.get(key) ?? []), s]);
+  }
+  const groupXml = [...groups.values()]
+    .map((list) => {
+      const head = list[0]!;
+      const body = list
+        .map((s) => {
+          const loop = s.loop
+            ? ` loopEnabled="1" loopStart="0" loopEnd="${Math.max(1, s.frames)}"`
+            : "";
+          return `      <sample path="Samples/${xml(fileSafe(s.padId))}.wav" rootNote="${s.note}" loNote="${s.note}" hiNote="${s.note}"${loop}/>`;
+        })
+        .join("\n");
+      return `    <group attack="0.001" decay="0" sustain="1" release="${head.release}">\n${body}\n    </group>`;
+    })
+    .join("\n");
+  const preset = `<?xml version="1.0" encoding="UTF-8"?>
+<DecentSampler minVersion="1.0.0" title="${xml(title)}">
+  <ui width="812" height="375" bgColor="FF151A1C">
+    <tab name="main">
+      <label x="40" y="20" width="732" height="40" textSize="24" textColor="FFFFFFFF" text="${xml(title)}"/>
+      <label x="40" y="52" width="732" height="24" textSize="14" textColor="FF8FA6A3" text="Frost Sampler"/>
+${knobs(0, false)}
+    </tab>
+  </ui>
+  <groups>
+${groupXml}
+  </groups>
+</DecentSampler>
+`;
+  entries.push({ name: `${folder}/Chops.dspreset`, data: enc.encode(preset) });
+  const lines = [...samples].sort((a, b) => a.note - b.note || a.padId.localeCompare(b.padId));
+  const omitted = opts.omitted ?? [];
+  const readme = `${title} — chops for a DAW
+${"=".repeat(title.length + 18)}
+
+These are the chops from this project, rendered as they play in Frost (pitch, reverse, fades,
+stretch, volume). Each pad is one MIDI note. The numbers below are MIDI note numbers. DAWs
+label the same number differently, so follow the number.
+
+PLAY THEM
+1. Install Decent Sampler (free, AU / VST3): https://www.decentsamples.com/product/decent-sampler-plugin/
+2. Unzip this file and keep the "${folder}" folder together. To update the chops, unzip a new
+   export over this same folder. The preset stays Chops.dspreset and each pad stays
+   Samples/<pad>.wav, so the DAW does not need to be pointed at the instrument again.
+3. Add an instrument track, load Decent Sampler, then File → Load Sample Library… and choose
+   Chops.dspreset from this folder.
+4. Record on that track and play the same pads you use in Frost. Turn Frost's MIDI input off
+   while you do, so each hit is heard once.
+
+NOTE NUMBERS
+${lines.map((s) => `  ${String(s.note).padStart(3)}  ${s.padId.padEnd(4)} ${s.chopName}${s.loop ? "  (loops while held)" : ""}`).join("\n")}
+${omitted.length ? `\nLEFT OUT\n${omitted.map((o) => `  ${o.padId}  ${o.reason}`).join("\n")}\n` : ""}
+One-shot pads ring after you let go. Pads set to hold or loop fade using their release.
+The Release knob on the preset fades every pad after a note-off.
+
+OTHER SAMPLERS
+The WAVs in Samples/ are 24-bit with the pad's MIDI note written into the file.
+`;
+  entries.push({ name: `${folder}/README.txt`, data: enc.encode(readme) });
+  return { fileName: `${folder.replace(/\s+/g, "_")}_Chops.zip`, bytes: makeZip(entries) };
 }

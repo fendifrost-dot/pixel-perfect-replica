@@ -9,6 +9,7 @@ import { PadEditor } from "./PadEditor";
 import { DrumPicker } from "./DrumPicker";
 import { Drum, SlidersHorizontal, Square } from "lucide-react";
 import { Segmented } from "./controls";
+import { useMidi } from "./Midi";
 import { cn } from "@/lib/utils";
 
 /** A tiny view of the actual slice peaks, never a generated decorative waveform. */
@@ -51,6 +52,7 @@ export function PadsView() {
   const [hit, setHit] = useState<Record<string, boolean>>({});
   const [drumsFor, setDrumsFor] = useState<string | null>(null);
   const warned = useRef(false);
+  const midi = useMidi();
   const pads = project.pads.filter((p) => p.bank === project.bank);
   const selected = project.pads.find((p) => p.id === project.selectedPadId);
 
@@ -150,6 +152,19 @@ export function PadsView() {
               </button>
             </div>
           )}
+          {midi.available && midi.learningLabel && (
+            <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-black/30 px-3 py-2 text-xs">
+              <span>{midi.learningLabel}</span>
+              <button className="btn min-h-8 px-2 text-[10px]" onClick={midi.cancelLearn}>
+                Cancel
+              </button>
+            </div>
+          )}
+          {midi.available && (
+            <button className="btn mt-3 w-full text-xs" onClick={() => midi.setSettingsOpen(true)}>
+              Controller
+            </button>
+          )}
           <div className="pad-grid no-touch-scroll">
             {ordered.map((pad) => {
               const slice = project.slices.find((s) => s.id === pad.sliceId);
@@ -192,7 +207,8 @@ export function PadsView() {
                     `pad-${pad.color}`,
                     slice && "has-sound",
                     project.selectedPadId === pad.id && "is-selected",
-                    hit[pad.id] && "is-hit",
+                    (hit[pad.id] || midi.lit[pad.id]) && "is-hit",
+                    midi.learningPadId === pad.id && "is-learning",
                   )}
                 >
                   <span className="pad-id">

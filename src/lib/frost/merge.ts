@@ -7,7 +7,8 @@
  *   (chop markers, beat markers) merge per recording.
  * - View state (selection, open recording / pad / bank / pattern) is always the phone's.
  */
-import type { Project } from "./types";
+import { midiOf } from "./noteMap";
+import type { MidiCcBinding, Project } from "./types";
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -78,6 +79,16 @@ export function mergeProjects(base: Project, local: Project, remote: Project): P
   m.arrangement = mergeById(base.arrangement, local.arrangement, remote.arrangement);
   m.markers = mergeMap(base.markers, local.markers, remote.markers);
   m.beatGrids = mergeMap(base.beatGrids, local.beatGrids, remote.beatGrids);
+  const bm = midiOf(base.midi);
+  const lm = midiOf(local.midi);
+  const rm = midiOf(remote.midi);
+  const ccId = (c: MidiCcBinding) => ({ ...c, id: c.target });
+  m.midi = {
+    notes: mergeMap(bm.notes, lm.notes, rm.notes),
+    ccs: mergeById(bm.ccs.map(ccId), lm.ccs.map(ccId), rm.ccs.map(ccId)).map(
+      ({ id: _id, ...rest }) => rest,
+    ),
+  };
   for (const f of VIEW_FIELDS) (m as unknown as Record<string, unknown>)[f] = local[f];
   if (!m.patterns.some((p) => p.id === m.currentPatternId))
     m.currentPatternId = m.patterns[0]?.id ?? m.currentPatternId;

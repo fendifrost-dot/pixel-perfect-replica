@@ -1,7 +1,19 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, Circle, Minus, Play, Plus, Repeat, Square, Timer, Undo2 } from "lucide-react";
+import {
+  ChevronDown,
+  Circle,
+  KeyboardMusic,
+  Minus,
+  Play,
+  Plus,
+  Repeat,
+  Square,
+  Timer,
+  Undo2,
+} from "lucide-react";
 import { useFrost } from "@/lib/frost/store";
 import { ProjectsSheet } from "./ProjectsSheet";
+import { useMidi } from "./Midi";
 import { cn } from "@/lib/utils";
 
 export function TopBar() {
@@ -36,6 +48,7 @@ export function TopBar() {
     setBpmText(null);
     if (bpmText.trim() !== "" && Number.isFinite(v) && v > 0) setBpm(v);
   };
+  const midi = useMidi();
   const saveLabel = {
     new: "New session",
     saved: "Saved on device",
@@ -113,6 +126,21 @@ export function TopBar() {
           >
             <Repeat className="size-4" />
           </button>
+          {midi.available && (
+            <button
+              aria-label={midi.enabled ? "Turn MIDI input off" : "Turn MIDI input on"}
+              title={midi.enabled ? "MIDI input on" : "MIDI input off"}
+              aria-pressed={midi.enabled}
+              onClick={midi.toggle}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                midi.setSettingsOpen(true);
+              }}
+              className={cn("transport-icon", midi.enabled && "btn-on")}
+            >
+              <KeyboardMusic className="size-4" />
+            </button>
+          )}
           <span className="transport-divider" />
           <button
             aria-label="Undo"
@@ -128,7 +156,8 @@ export function TopBar() {
           className="transport-position"
           aria-label={`${loopMode === "song" ? "Song" : "Pattern"} transport`}
         >
-          <span className="eyebrow">{loopMode === "song" ? "Song" : "Pattern"}
+          <span className="eyebrow">
+            {loopMode === "song" ? "Song" : "Pattern"}
             {repeat ? " · repeat" : " · once"}
           </span>
           <span className="position-readout" aria-hidden="true">

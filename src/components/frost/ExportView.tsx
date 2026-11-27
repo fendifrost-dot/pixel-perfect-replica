@@ -99,6 +99,24 @@ export function ExportView() {
   // Pad samples: every pad's sound as its own WAV, no beat needed.
   const [padMode, setPadMode] = useState<"pad" | "original">("pad");
   const [padFiles, setPadFiles] = useState<RenderedFile[]>([]);
+  const [chopFiles, setChopFiles] = useState<RenderedFile[]>([]);
+  const exportChops = async () => {
+    setBusy("Rendering chops…");
+    setChopFiles([]);
+    try {
+      const { file, skipped } = await renderService.renderChopPack(project, setBusy);
+      setChopFiles([file]);
+      notify(
+        skipped.length
+          ? `Pack ready. Skipped ${skipped.join(", ")} — their recording isn't loaded on this device.`
+          : "Pack ready — unzip it over the same folder so the DAW keeps the instrument.",
+      );
+    } catch (e) {
+      notify((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
   // Pads with a sound, grouped by bank in pad order (A1..A16, B1..), for the pick list.
   const padGroups = useMemo(
     () =>
@@ -351,6 +369,24 @@ export function ExportView() {
               : "No pads have a sound yet")}
         </button>
         {padFiles.length > 0 && <FileList files={padFiles} title={`${project.name} pads`} />}
+      </section>
+
+      <section className="panel space-y-3" aria-label="Chops for your DAW">
+        <div className="eyebrow">Chops for your DAW</div>
+        <p className="text-[11px] text-muted-foreground">
+          Every pad that has a sound, rendered as it plays, on this project's MIDI notes. One
+          preset. Unzip a new export over the same folder and the DAW keeps the instrument. Turn
+          MIDI input off while you record those notes, so each hit plays once.
+        </p>
+        <button
+          className="btn btn-primary h-12 w-full"
+          disabled={!!busy || !soundPadIds.length}
+          onClick={exportChops}
+        >
+          {busy ??
+            (soundPadIds.length ? "Download chops for the DAW (.zip)" : "No pads have a sound yet")}
+        </button>
+        {chopFiles.length > 0 && <FileList files={chopFiles} title={chopFiles[0].name} />}
       </section>
 
       <section className="panel space-y-3" aria-label="Sounds for your DAW">

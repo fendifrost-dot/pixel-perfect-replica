@@ -3,6 +3,7 @@
  * so reopening re-decodes the same audio and every chop still points at the same samples.
  * With Cloud sync on (cloud.ts / sync.ts), entries also remember which cloud version they match.
  */
+import { normalizeMidi } from "./noteMap";
 import { SCHEMA_VERSION, type Project } from "./types";
 
 const DB = "frost-sampler";
@@ -90,6 +91,7 @@ export function migrateProject(raw: unknown): Project {
     schemaVersion: SCHEMA_VERSION,
     beatGrids: proj.beatGrids ?? {},
     export: { ...proj.export, patternRepeats: proj.export?.patternRepeats ?? 4 },
+    midi: normalizeMidi(proj.midi),
   };
 }
 
@@ -113,7 +115,11 @@ export const currentKey = {
 
 export const library = {
   /** Save a project. Local edits mark it dirty (to push); `sync` records a version the cloud holds. */
-  async save(key: string, project: Project, sync?: { cloudUpdatedAt: string; base?: Project; dirty?: boolean }) {
+  async save(
+    key: string,
+    project: Project,
+    sync?: { cloudUpdatedAt: string; base?: Project; dirty?: boolean },
+  ) {
     const prev = await library.entry(key);
     const entry: LibraryEntry = {
       key,
@@ -140,7 +146,9 @@ export const library = {
   async markSynced(key: string, cloudUpdatedAt: string, savedAt: number, pushed: Project) {
     const e = await library.entry(key);
     if (!e) return;
-    await tx("projects", "readwrite", (s) => s.put({ ...e, cloudUpdatedAt, base: pushed, dirty: e.savedAt !== savedAt }));
+    await tx("projects", "readwrite", (s) =>
+      s.put({ ...e, cloudUpdatedAt, base: pushed, dirty: e.savedAt !== savedAt }),
+    );
   },
   async load(key: string): Promise<Project | null> {
     const e = await tx<LibraryEntry>("projects", "readonly", (s) => s.get(key));

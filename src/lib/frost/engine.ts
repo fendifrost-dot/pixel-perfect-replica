@@ -21,7 +21,17 @@ import type {
   KeyService,
   TransportService,
 } from "./services";
-import { eventsInRange, padForHit, patternSections, regionPattern, songSections, soundingAt, sectionsLength, stepDur } from "./timing";
+import {
+  eventsInRange,
+  padForHit,
+  patternSections,
+  playPlan,
+  regionPattern,
+  songSections,
+  soundingAt,
+  sectionsLength,
+  stepDur,
+} from "./timing";
 import { CHOKE_FADE, MIN_RELEASE, padSource, startVoice, type VoiceHandle } from "./voice";
 import type { Pad, Project, Slice } from "./types";
 import { encodeWav24 } from "./wav";
@@ -106,7 +116,8 @@ if (typeof window !== "undefined") {
       stalls = 0;
     }
   }, 700);
-  for (const ev of ["pointerdown", "touchend", "keydown"]) window.addEventListener(ev, unlockInGesture, { capture: true, passive: true });
+  for (const ev of ["pointerdown", "touchend", "keydown"])
+    window.addEventListener(ev, unlockInGesture, { capture: true, passive: true });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && ctx && ctx.state !== "running") stuck = true;
   });
@@ -246,13 +257,22 @@ function cutVoice(v: VoiceHandle, at: number, fade: number) {
   }
 }
 
-function trigger(pad: Pad, slice: Slice | undefined, velocity: number, bpm: number, when: number, stopAt?: number, skip = 0): boolean {
+function trigger(
+  pad: Pad,
+  slice: Slice | undefined,
+  velocity: number,
+  bpm: number,
+  when: number,
+  stopAt?: number,
+  skip = 0,
+): boolean {
   const ps = padSource(pad, slice, bpm);
   if (!ps) return false;
   const c = ac();
   if (pad.choke != null) {
     for (const list of voices.values())
-      for (const v of list) if (v.pad.choke === pad.choke && v.end > when) cutVoice(v, when, CHOKE_FADE);
+      for (const v of list)
+        if (v.pad.choke === pad.choke && v.end > when) cutVoice(v, when, CHOKE_FADE);
   }
   const v = startVoice(c, c.destination, pad, ps, velocity, when, stopAt, undefined, skip);
   const list = voices.get(pad.id) ?? [];
@@ -260,7 +280,11 @@ function trigger(pad: Pad, slice: Slice | undefined, velocity: number, bpm: numb
   voices.set(pad.id, list);
   v.src.onended = () => {
     const l = voices.get(pad.id);
-    if (l) voices.set(pad.id, l.filter((x) => x !== v));
+    if (l)
+      voices.set(
+        pad.id,
+        l.filter((x) => x !== v),
+      );
   };
   return true;
 }
@@ -280,7 +304,11 @@ export const playbackService: PlaybackService = {
   },
   latencyInfo() {
     const c = ac();
-    return { sampleRate: c.sampleRate, baseLatency: c.baseLatency || 0, outputLatency: c.outputLatency || 0 };
+    return {
+      sampleRate: c.sampleRate,
+      baseLatency: c.baseLatency || 0,
+      outputLatency: c.outputLatency || 0,
+    };
   },
   audition(sourceId, start, end, onEnd) {
     const b = audioStore.getBuffer(sourceId);
@@ -317,7 +345,8 @@ export const playbackService: PlaybackService = {
     const list = voices.get(padId);
     if (!list) return;
     const t = ac().currentTime;
-    for (const v of list) if (v.pad.mode !== "oneshot") cutVoice(v, t, Math.max(MIN_RELEASE, v.pad.release));
+    for (const v of list)
+      if (v.pad.mode !== "oneshot") cutVoice(v, t, Math.max(MIN_RELEASE, v.pad.release));
   },
   stopAll() {
     playbackService.stopAudition();
@@ -353,6 +382,21 @@ interface TState {
   region?: { from: number; to: number } | undefined;
 }
 let ts: TState | null = null;
+
+/** A pattern hit the transport is about to play, so MIDI output can send the same note. */
+export interface ScheduledNote {
+  padId: string;
+  velocity: number;
+  /** AudioContext time of the note-on. */
+  when: number;
+  /** AudioContext time of the note-off. */
+  off: number;
+}
+let noteSink: { onNote: (n: ScheduledNote) => void; onStop: () => void } | null = null;
+export function setTransportNoteSink(sink: typeof noteSink) {
+  noteSink = sink;
+}
+
 const posAt = (s: TState, t: number) => s.anchorPos + (t - s.anchorTime) / stepDur(s.bpm);
 const timeAt = (s: TState, pos: number) => s.anchorTime + (pos - s.anchorPos) * stepDur(s.bpm);
 
@@ -393,12 +437,20 @@ export const transportService: TransportService = {
         s.bpm = p.bpm;
       }
       const whole = s.mode === "song" ? songSections(p) : patternSections(p, 1);
-      const sections = s.region ? [{ pattern: regionPattern(p, whole[0].pattern, s.region.from, s.region.to), startStep: 0 }] : whole;
+      const sections = s.region
+        ? [
+            {
+              pattern: regionPattern(p, whole[0].pattern, s.region.from, s.region.to),
+              startStep: 0,
+            },
+          ]
+        : whole;
       const total = sectionsLength(sections);
       // Without repeat, play to the end of the pass the playhead is in, then stop.
       // (Fixed once, so it doesn't move on as the playhead crosses it.)
       if (repeat()) s.end = undefined;
-      else if (s.end == null && total) s.end = (Math.floor(Math.max(0, posAt(s, now)) / total) + 1) * total;
+      else if (s.end == null && total)
+        s.end = (Math.floor(Math.max(0, posAt(s, now)) / total) + 1) * total;
       const end = s.end ?? Infinity;
       if (total && s.scheduledTo >= end) {
         if (now >= timeAt(s, end)) {
@@ -423,10 +475,18 @@ export const transportService: TransportService = {
         let stopAt: number | undefined;
         if (h.length) stopAt = timeAt(s, h.at + h.length);
         else if (pad.mode !== "oneshot") {
-          const next = eventsInRange(p, sections, h.at + 1e-6, h.at + total + 1e-6, true).find((x) => x.padId === h.padId);
+          const next = eventsInRange(p, sections, h.at + 1e-6, h.at + total + 1e-6, true).find(
+            (x) => x.padId === h.padId,
+          );
           stopAt = timeAt(s, Math.min(end, next ? next.at : h.at + total));
         }
-        trigger(padForHit(pad, h), slice, h.velocity, p.bpm, Math.max(now, timeAt(s, h.at)), stopAt);
+        const played = padForHit(pad, h);
+        const when = Math.max(now, timeAt(s, h.at));
+        trigger(played, slice, h.velocity, p.bpm, when, stopAt);
+        if (slice && noteSink) {
+          const off = stopAt ?? when + Math.max(0.05, playPlan(played, slice, p.bpm).duration);
+          noteSink.onNote({ padId: pad.id, velocity: h.velocity, when, off });
+        }
       }
       // Each pass of a region: join sounds that started before it (e.g. the beat file) part-way in.
       if (s.region) {
@@ -435,16 +495,28 @@ export const transportService: TransportService = {
           for (const { note, skip } of soundingAt(p, whole[0].pattern, s.region.from)) {
             const pad = p.pads.find((x) => x.id === note.padId);
             if (!pad) continue;
-            trigger(padForHit(pad, note), p.slices.find((x) => x.id === pad.sliceId), note.velocity, p.bpm, Math.max(now, timeAt(s, k * total)), timeAt(s, Math.min(end, (k + 1) * total)), skip * sd);
+            trigger(
+              padForHit(pad, note),
+              p.slices.find((x) => x.id === pad.sliceId),
+              note.velocity,
+              p.bpm,
+              Math.max(now, timeAt(s, k * total)),
+              timeAt(s, Math.min(end, (k + 1) * total)),
+              skip * sd,
+            );
           }
       }
       for (const [id, until] of s.suppressed) if (until < from) s.suppressed.delete(id);
       if (metronome()) {
-        for (let b = Math.ceil(from / 4); b * 4 < to; b++) if (b >= 0) click(timeAt(s, b * 4), (b * 4) % 16 === 0);
+        for (let b = Math.ceil(from / 4); b * 4 < to; b++)
+          if (b >= 0) click(timeAt(s, b * 4), (b * 4) % 16 === 0);
       }
       for (let st = Math.max(0, Math.ceil(from)); st < to; st++) {
         const t = timeAt(s, st);
-        setTimeout(() => ts === s && onStep((s.region?.from ?? 0) + (st % total)), Math.max(0, (t - now) * 1000));
+        setTimeout(
+          () => ts === s && onStep((s.region?.from ?? 0) + (st % total)),
+          Math.max(0, (t - now) * 1000),
+        );
       }
       s.scheduledTo = to;
     };
@@ -456,6 +528,7 @@ export const transportService: TransportService = {
     if (ts) clearInterval(ts.timer);
     ts = null;
     playbackService.stopAll();
+    noteSink?.onStop();
   },
 };
 
@@ -510,19 +583,35 @@ export const aiSliceService: AiSliceService = {
   async suggest(sourceId, start, end, availablePads, signal) {
     const buffer = audioStore.getBuffer(sourceId);
     if (!buffer) throw new Error("Re-import this recording before using AI.");
-    if (start < 0 || end > buffer.duration || end <= start || end - start > 60) throw new Error("Choose a selection up to 60 seconds.");
+    if (start < 0 || end > buffer.duration || end <= start || end - start > 60)
+      throw new Error("Choose a selection up to 60 seconds.");
     if (!availablePads.length) throw new Error("Choose a bank with empty pads.");
-    const a = Math.floor(start * buffer.sampleRate), b = Math.ceil(end * buffer.sampleRate);
-    const channels = Array.from({ length: Math.min(2, buffer.numberOfChannels) }, (_, c) => buffer.getChannelData(c).slice(a, b));
+    const a = Math.floor(start * buffer.sampleRate),
+      b = Math.ceil(end * buffer.sampleRate);
+    const channels = Array.from({ length: Math.min(2, buffer.numberOfChannels) }, (_, c) =>
+      buffer.getChannelData(c).slice(a, b),
+    );
     const { bytes } = encodeWav24(channels, buffer.sampleRate);
     const form = new FormData();
-    form.set("audio", new Blob([bytes as Uint8Array<ArrayBuffer>], { type: "audio/wav" }), "selection.wav");
+    form.set(
+      "audio",
+      new Blob([bytes as Uint8Array<ArrayBuffer>], { type: "audio/wav" }),
+      "selection.wav",
+    );
     form.set("pads", JSON.stringify(availablePads));
     const response = await fetch("/api/ai-slices", { method: "POST", body: form, signal });
     const data = await response.json();
-    if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "AI analysis is unavailable.");
+    if (!response.ok)
+      throw new Error(typeof data.error === "string" ? data.error : "AI analysis is unavailable.");
     const result = validateAiSlices(data, end - start, availablePads);
-    return { ...result, slices: result.slices.map((s) => ({ ...s, start: s.start + start, end: Math.min(end, s.end + start) })) };
+    return {
+      ...result,
+      slices: result.slices.map((s) => ({
+        ...s,
+        start: s.start + start,
+        end: Math.min(end, s.end + start),
+      })),
+    };
   },
 };
 
@@ -549,7 +638,11 @@ let mic: {
 export const micService: MicService = {
   availability() {
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia)
-      return { available: false, reason: "This browser can't use the microphone here. Open the app in Safari (or from the Home Screen icon)." };
+      return {
+        available: false,
+        reason:
+          "This browser can't use the microphone here. Open the app in Safari (or from the Home Screen icon).",
+      };
     return { available: true };
   },
   async start() {
@@ -563,7 +656,9 @@ export const micService: MicService = {
     let stream: MediaStream;
     try {
       // Echo cancellation keeps the beat coming out of the speaker out of the take.
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true } });
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true },
+      });
     } catch (e) {
       if (nav.audioSession && sessionWas) nav.audioSession.type = sessionWas;
       const name = (e as Error).name;
@@ -579,7 +674,16 @@ export const micService: MicService = {
     const node = c.createScriptProcessor(2048, 1, 1);
     const sink = c.createGain();
     sink.gain.value = 0; // the processor must reach the output to run; keep it silent
-    const m = { stream, src, node, sink, chunks: [] as Float32Array[], startTime: null as number | null, level: 0, sessionWas };
+    const m = {
+      stream,
+      src,
+      node,
+      sink,
+      chunks: [] as Float32Array[],
+      startTime: null as number | null,
+      level: 0,
+      sessionWas,
+    };
     node.onaudioprocess = (e) => {
       const d = e.inputBuffer.getChannelData(0);
       // this block was captured just before the callback: its first sample is one block ago

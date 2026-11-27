@@ -32,6 +32,7 @@ import {
 import { audioStore } from "./audioStore";
 import { findDrum, parseKitSourceId } from "./kits";
 import { GM_DRUM, TICKS_PER_STEP, writeMidi, type MidiTrack } from "./midi";
+import { chopAssignments, buildChopPack, type ChopPackSample } from "./samplerPack";
 import { encodeWav24 } from "./wav";
 import type { Pad, Project } from "./types";
 
@@ -369,10 +370,89 @@ export async function renderHumLayers(
   return named;
 }
 
+/**
+ * Chops as a Decent Sampler pack on the project's note map. One-shots are rendered in full and
+ * given a long note-off fade in the preset; hold and loop pads keep their release. Pan stays
+ * centred so the DAW places the sound. Volume, pitch, reverse, fades and stretch are the pad's.
+ */
+export async function renderChopPack(
+  p: Project,
+  onProgress?: (msg: string) => void,
+): Promise<{ file: RenderedFile; skipped: string[] }> {
+  const assigned = chopAssignments(p);
+  if (!assigned.length)
+    throw new Error("No pads have a sound yet — chop a recording onto the pads first.");
+  prepareStretches(p);
+  const sampleRate = p.export.sampleRate;
+  const samples: ChopPackSample[] = [];
+  const skipped: string[] = [];
+  const omitted: { padId: string; reason: string }[] = [];
+  const assignedIds = new Set(assigned.map((a) => a.pad.id));
+  for (const pad of p.pads) {
+    if (pad.sliceId && !assignedIds.has(pad.id))
+      omitted.push({
+        padId: pad.id,
+        reason: "no free MIDI note — that number belongs to another pad",
+      });
+  }
+  for (const [i, { pad, note }] of assigned.entries()) {
+    const slice = p.slices.find((s) => s.id === pad.sliceId);
+    if (!slice || !audioStore.getBuffer(slice.sourceId)) {
+      skipped.push(pad.id);
+      omitted.push({ padId: pad.id, reason: "recording isn't loaded on this device" });
+      continue;
+    }
+    onProgress?.(`Rendering ${pad.id} (${i + 1}/${assigned.length})…`);
+    const played: Pad = { ...pad, mode: "oneshot", pan: 0 };
+    const ps = padSource(played, slice, p.bpm);
+    if (!ps) {
+      skipped.push(pad.id);
+      continue;
+    }
+    const frames = Math.max(1, Math.ceil(ps.playDuration * sampleRate));
+    const off = new OfflineAudioContext({ numberOfChannels: 2, length: frames, sampleRate });
+    startVoice(off, off.destination, played, ps, 127, 0);
+    const out = await off.startRendering();
+    const enc = encodeWav24(
+      [out.getChannelData(0), out.getChannelData(1)],
+      sampleRate,
+      { bpm: p.bpm, oneShot: true },
+      note,
+    );
+    samples.push({
+      padId: pad.id,
+      chopName: slice.name,
+      note,
+      wav: enc.bytes,
+      release: pad.mode === "oneshot" ? 30 : Math.max(0.01, pad.release),
+      loop: pad.mode === "loop",
+      frames: out.length,
+    });
+  }
+  if (!samples.length)
+    throw new Error(
+      "None of the pads' recordings are loaded on this device yet — open Chop and wait for the waveform.",
+    );
+  onProgress?.("Packing…");
+  const packed = buildChopPack({ projectName: p.name, samples, omitted });
+  return {
+    file: {
+      name: packed.fileName,
+      blob: new Blob([packed.bytes as Uint8Array<ArrayBuffer>], { type: "application/zip" }),
+      frames: 0,
+      peak: 0,
+      clipped: 0,
+      kind: "stem",
+    },
+    skipped,
+  };
+}
+
 export const renderService: RenderService = {
   async renderWav(p, onProgress) {
     return (await renderProject(p, onProgress)).files;
   },
   renderPadSamples,
   renderHumLayers,
+  renderChopPack,
 };

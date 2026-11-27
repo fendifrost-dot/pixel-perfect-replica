@@ -19,7 +19,7 @@ import { playPlan } from "./timing";
 import { decodeWav } from "./wav";
 import { padSource, startVoice } from "./voice";
 import { playbackService } from "./engine";
-import { SCHEMA_VERSION, type Pad, type Project, type Slice } from "./types";
+import { emptyMidi, SCHEMA_VERSION, type Pad, type Project, type Slice } from "./types";
 
 export interface CheckResult {
   name: string;
@@ -105,6 +105,7 @@ function testProject(sampleRate: number, quantize: Project["quantize"]): Project
       includeTails: true,
       tailSec: 0.5,
     },
+    midi: emptyMidi(),
   };
 }
 
@@ -296,7 +297,11 @@ export async function reopenCheck(p: Project, key: string): Promise<CheckResult[
       out.push({
         name: `Drum “${s.name}”`,
         pass: same,
-        detail: same ? "Regenerates identically on reopen." : d ? "Regenerated drum differs from the loaded one." : "Unknown built-in drum — this app version can't regenerate it.",
+        detail: same
+          ? "Regenerates identically on reopen."
+          : d
+            ? "Regenerated drum differs from the loaded one."
+            : "Unknown built-in drum — this app version can't regenerate it.",
       });
       continue;
     }

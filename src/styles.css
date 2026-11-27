@@ -751,6 +751,10 @@
   outline: 2px solid var(--primary);
   outline-offset: 3px;
 }
+.sampler-pad.is-learning {
+  outline: 2px solid #e7c36a;
+  outline-offset: 2px;
+}
 .sampler-pad.is-hit {
   transform: translateY(3px);
   box-shadow: 0 1px #0f171c;

@@ -148,6 +148,30 @@ export interface Selection {
   end: number;
 }
 
+/** A learned knob. One binding per target; the channel is whichever the controller sent. */
+export interface MidiCcBinding {
+  /** 0–127. */
+  cc: number;
+  /** 1–16. */
+  channel: number;
+  target: "pitch" | "volume" | "start" | "end";
+}
+
+export type MidiCcTarget = MidiCcBinding["target"];
+
+/**
+ * Which controller message plays or edits which pad. Notes absent from `notes` use the default
+ * (36 upward, pads in bank order). Stored with the project so a reopened session and the DAW
+ * pack keep the same layout.
+ */
+export interface MidiMap {
+  /** Pad id → MIDI note number. */
+  notes: Record<string, number>;
+  ccs: MidiCcBinding[];
+}
+
+export const emptyMidi = (): MidiMap => ({ notes: {}, ccs: [] });
+
 export interface Project {
   schemaVersion: number;
   name: string;
@@ -179,4 +203,6 @@ export interface Project {
   humSession?: { patternId: string; backingPadId: string };
   /** The beat's key: samples and drums can be matched to it. */
   key?: { tonic: number; mode: "major" | "minor" };
+  /** Controller layout for this project. Missing on old saves; migrate fills an empty map. */
+  midi?: MidiMap;
 }

@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { createEmptyProject } from "./demo";
 import { KITS } from "./kits";
-import { DRUM_BASE_NOTE, buildSamplerPack, isPitchedKit } from "./samplerPack";
+import { learnNote } from "./noteMap";
+import {
+  DRUM_BASE_NOTE,
+  buildChopPack,
+  buildSamplerPack,
+  chopAssignments,
+  isPitchedKit,
+} from "./samplerPack";
+import { emptyMidi } from "./types";
 import { crc32 } from "./zip";
 import { decodeWav } from "./wav";
 
@@ -70,4 +79,64 @@ describe("sampler packs for the DAW", () => {
       "Kick 20 West Coast",
     );
   }, 60_000);
+
+  it("packs a project's chops on the shared note map, with stable paths and note numbers", () => {
+    let p = createEmptyProject("Night");
+    p = {
+      ...p,
+      slices: [{ id: "sl", sourceId: "s", name: "Kick & snare", start: 0, end: 1 }],
+      pads: p.pads.map((pad) =>
+        pad.id === "A1" ? { ...pad, sliceId: "sl", mode: "loop" as const } : pad,
+      ),
+      midi: learnNote(emptyMidi(), "A1", 72),
+    };
+    const hit = chopAssignments(p).find((a) => a.pad.id === "A1");
+    expect(hit?.note).toBe(72);
+    const { fileName, bytes } = buildChopPack({
+      projectName: p.name,
+      samples: [
+        {
+          padId: "A1",
+          chopName: "Kick & snare",
+          note: hit!.note,
+          wav: new Uint8Array([1, 2, 3, 4]),
+          release: 0.2,
+          loop: true,
+          frames: 48,
+        },
+      ],
+    });
+    expect(fileName).toBe("Frost_Night_Chops.zip");
+    const files = unzip(bytes);
+    expect(files.has("Frost Night/Samples/A1.wav")).toBe(true);
+    expect(files.has("Frost Night/Chops.dspreset")).toBe(true);
+    const preset = new TextDecoder().decode(files.get("Frost Night/Chops.dspreset")!);
+    expect(preset).toContain('path="Samples/A1.wav"');
+    expect(preset).toContain('rootNote="72" loNote="72" hiNote="72"');
+    expect(preset).toContain('loopEnabled="1"');
+    const readme = new TextDecoder().decode(files.get("Frost Night/README.txt")!);
+    expect(readme).toContain("72  A1");
+    expect(readme).not.toContain("C4");
+    // A second export of a re-chopped A1 keeps the same preset and sample path.
+    const again = buildChopPack({
+      projectName: "Night",
+      samples: [
+        {
+          padId: "A1",
+          chopName: "New chop",
+          note: 72,
+          wav: new Uint8Array([9]),
+          release: 30,
+          loop: false,
+          frames: 8,
+        },
+      ],
+    });
+    const files2 = unzip(again.bytes);
+    expect(
+      [...files2.keys()].filter((n) => n.endsWith(".dspreset") || n.endsWith(".wav")).sort(),
+    ).toEqual(
+      [...files.keys()].filter((n) => n.endsWith(".dspreset") || n.endsWith(".wav")).sort(),
+    );
+  });
 });
